@@ -2,9 +2,11 @@
 
 namespace App\Domains\Organization\Models;
 
-use Illuminate\Database\Eloquent\Model;
+use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -44,14 +46,42 @@ class Business extends Model
      */
     public function businessType(): BelongsTo
     {
-        return $this->belongsTo(BusinessType::class, 'business_type_id');
+        return $this->belongsTo(
+            BusinessType::class,
+            'business_type_id'
+        );
     }
 
     /**
      * Business has many Branches.
      */
-     public function branches(): HasMany
+    public function branches(): HasMany
     {
-       return $this->hasMany(Branch::class);
-    } 
+        return $this->hasMany(Branch::class);
+    }
+
+    /**
+     * Users who belong to this business.
+     */
+    public function memberships(): HasMany
+    {
+        return $this->hasMany(BusinessUser::class);
+    }
+
+    /**
+     * Users belonging to this business.
+     */
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            User::class,
+            'business_user'
+        )
+            ->withPivot([
+                'id',
+                'status',
+                'joined_at',
+            ])
+            ->withTimestamps();
+    }
 }

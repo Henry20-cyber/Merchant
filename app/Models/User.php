@@ -9,6 +9,11 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use App\Domains\Organization\Models\BusinessUser;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Spatie\Permission\Traits\HasRoles;
+use App\Domains\Organization\Models\Business;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -26,9 +31,9 @@ use Illuminate\Support\Carbon;
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, HasRoles;   
 
-    /**
+    /** 
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -40,4 +45,29 @@ class User extends Authenticatable
             'password' => 'hashed',
         ];
     }
+
+    /**
+ * Businesses this user belongs to.
+ */
+public function memberships(): HasMany
+{
+    return $this->hasMany(BusinessUser::class);
+}
+
+/**
+ * Businesses this user belongs to.
+ */
+public function businesses(): BelongsToMany
+{
+    return $this->belongsToMany(
+        Business::class,
+        'business_user'
+    )
+        ->withPivot([
+            'id',
+            'status',
+            'joined_at',
+        ])
+        ->withTimestamps();
+}
 }
