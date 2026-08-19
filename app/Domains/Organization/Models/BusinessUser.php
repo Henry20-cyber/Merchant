@@ -38,7 +38,7 @@ class BusinessUser extends Model
     }
 
     /**
-     * The user who belongs to the business.
+     * The user who owns this membership.
      */
     public function user(): BelongsTo
     {

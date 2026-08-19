@@ -6,6 +6,7 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Database\Eloquent\Collection;
 
 class BusinessContextService
 {
@@ -58,5 +59,19 @@ class BusinessContextService
     public function clear(): void
     {
         session()->forget('current_business_id');
+    }
+
+     /**
+     * Get all active businesses belonging to the user.
+     */
+    public function activeBusinesses(User $user): Collection
+    {
+        return Business::query()
+            ->whereHas('memberships', function ($query) use ($user) {
+                $query
+                    ->where('user_id', $user->id)
+                    ->where('status', 'active');
+            })
+            ->get();
     }
 }

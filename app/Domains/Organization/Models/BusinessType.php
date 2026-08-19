@@ -4,10 +4,17 @@ namespace App\Domains\Organization\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class BusinessType extends Model
 {
     use HasUuids;
+    use HasFactory;
+
+    protected static function newFactory()
+{
+    return \Database\Factories\BusinessTypeFactory::new();
+}
 
     /**
      * The table associated with the model.

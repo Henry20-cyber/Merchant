@@ -6,6 +6,7 @@ use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use App\Models\User;
 
 class BusinessService
 {
@@ -15,13 +16,11 @@ class BusinessService
     public function registerBusiness(array $data): Business
     {
         return DB::transaction(function () use ($data) {
-
             $business = $this->createBusiness($data);
 
             $this->createHeadOffice($business, $data);
 
             return $business;
-
         });
     }
 
@@ -31,12 +30,11 @@ class BusinessService
     private function createBusiness(array $data): Business
     {
         return Business::create([
-
             'business_type_id' => $data['business_type_id'],
 
             'name' => $data['name'],
 
-            'slug' => Str::slug($data['name']),
+            'slug' => $this->generateUniqueSlug($data['name']),
 
             'phone' => $data['phone'],
 
@@ -55,8 +53,31 @@ class BusinessService
             'timezone' => $data['timezone'] ?? 'Africa/Lagos',
 
             'status' => 'trial',
-
         ]);
+    }
+
+    /**
+     * Generate a unique business slug.
+     */
+    private function generateUniqueSlug(string $name): string
+    {
+        $baseSlug = Str::slug($name);
+
+        $slug = $baseSlug;
+
+        $counter = 2;
+
+        while (
+            Business::withTrashed()
+                ->where('slug', $slug)
+                ->exists()
+        ) {
+            $slug = "{$baseSlug}-{$counter}";
+
+            $counter++;
+        }
+
+        return $slug;
     }
 
     /**
@@ -66,9 +87,7 @@ class BusinessService
         Business $business,
         array $data
     ): Branch {
-
         return Branch::create([
-
             'business_id' => $business->id,
 
             'name' => 'Head Office',
@@ -88,7 +107,43 @@ class BusinessService
             'country' => $data['default_country'] ?? 'Nigeria',
 
             'is_head_office' => true,
-
         ]);
     }
+
+    /**
+ * Get a business belonging to the authenticated user.
+ */
+public function getForUser(User $user, string $businessId): Business
+{
+    return Business::query()
+        ->where('id', $businessId)
+        ->whereHas('memberships', function ($query) use ($user) {
+            $query
+                ->where('user_id', $user->id)
+                ->where('status', 'active');
+        })
+        ->firstOrFail();
+}
+
+/**
+ * Update a business belonging to the authenticated user.
+ */
+public function updateForUser(
+    User $user,
+    string $businessId,
+    array $data
+): Business {
+    $business = Business::query()
+        ->where('id', $businessId)
+        ->whereHas('memberships', function ($query) use ($user) {
+            $query
+                ->where('user_id', $user->id)
+                ->where('status', 'active');
+        })
+        ->firstOrFail();
+
+    $business->update($data);
+
+    return $business->refresh();
+}
 }

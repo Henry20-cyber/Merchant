@@ -15,6 +15,7 @@ use Spatie\Permission\Traits\HasRoles;
 use App\Domains\Organization\Models\Business;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
+use Laravel\Sanctum\HasApiTokens;
 
 /**
  * @property int $id

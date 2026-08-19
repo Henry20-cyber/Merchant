@@ -153,7 +153,7 @@ return [
     /*
      * The class to use to resolve the permissions team id
      */
-    'team_resolver' => DefaultTeamResolver::class,
+   'team_resolver' => \App\Domains\Organization\Services\MerchantOSTeamResolver::class,
 
     /*
      * Passport Client Credentials Grant

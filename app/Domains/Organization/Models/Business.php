@@ -4,6 +4,7 @@ namespace App\Domains\Organization\Models;
 
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -14,6 +15,12 @@ class Business extends Model
 {
     use HasUuids;
     use SoftDeletes;
+    use HasFactory;
+
+    protected static function newFactory()
+    {
+        return \Database\Factories\BusinessFactory::new();
+    }
 
     protected $table = 'businesses';
 

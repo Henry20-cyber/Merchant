@@ -2,12 +2,14 @@
 
 namespace App\Domains\Organization\Services;
 
+use App\Domains\Organization\Models\Business;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Spatie\Permission\Contracts\PermissionsTeamResolver;
 
 class MerchantOSTeamResolver implements PermissionsTeamResolver
 {
-    public function getPermissionsTeamId(): ?int
+    public function getPermissionsTeamId(): int|string|null
     {
         $user = Auth::user();
 
@@ -22,8 +24,9 @@ class MerchantOSTeamResolver implements PermissionsTeamResolver
         return $business?->id;
     }
 
-    public function setPermissionsTeamId($id): void
-    {
+    public function setPermissionsTeamId(
+        int|string|Model|null $id
+    ): void {
         if ($id === null) {
             app(BusinessContextService::class)->clear();
 
@@ -36,7 +39,7 @@ class MerchantOSTeamResolver implements PermissionsTeamResolver
             return;
         }
 
-        $business = \App\Domains\Organization\Models\Business::find($id);
+        $business = Business::find($id);
 
         if (! $business) {
             return;

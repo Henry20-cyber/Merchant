@@ -7,6 +7,10 @@ use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -24,6 +28,20 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->configureDefaults();
+        
+        RateLimiter::for('login', function (Request $request) {
+    $email = Str::lower(
+        Str::ascii((string) $request->input('email'))
+    );
+
+    return [
+        Limit::perMinute(5)
+            ->by('login-email:' . $email . '|ip:' . $request->ip()),
+
+        Limit::perMinute(20)
+            ->by('login-ip:' . $request->ip()),
+    ];
+});
     }
 
     /**
