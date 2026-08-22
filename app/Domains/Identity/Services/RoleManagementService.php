@@ -185,4 +185,45 @@ public function update(
         return $role->refresh()->load('permissions');
     });
 }
+
+/**
+ * Delete an unused custom role belonging to a business.
+ */
+public function delete(
+    User $user,
+    string $businessId,
+    string $roleId
+): void {
+    $this->ensureUserBelongsToBusiness(
+        $user,
+        $businessId
+    );
+
+    $role = Role::query()
+        ->where('id', $roleId)
+        ->where('team_id', $businessId)
+        ->where('guard_name', 'web')
+        ->firstOrFail();
+
+    $this->ensureCustomRole($role);
+
+    $assignedUsers = DB::table('model_has_roles')
+        ->where('role_id', $role->id)
+        ->where('team_id', $businessId)
+        ->count();
+
+    if ($assignedUsers > 0) {
+        throw ValidationException::withMessages([
+            'role' => [
+                'This role cannot be deleted because users are still assigned to it.',
+            ],
+        ]);
+    }
+
+    DB::transaction(function () use ($role) {
+        $role->permissions()->detach();
+
+        $role->delete();
+    });
+}
 }

@@ -113,4 +113,36 @@ public function update(
         'data' => new RoleResource($updatedRole),
     ]);
 }
+
+/**
+ * Delete a custom role belonging to the current business.
+ */
+public function destroy(
+    Request $request,
+    string $role,
+    BusinessContextService $context,
+    RoleManagementService $roleManagementService
+): JsonResponse {
+    $business = $context->current($request->user());
+
+    if (! $business) {
+        return response()->json([
+            'success' => false,
+            'message' => 'No active business selected.',
+            'data' => null,
+        ], 404);
+    }
+
+    $roleManagementService->delete(
+        $request->user(),
+        $business->id,
+        $role
+    );
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Role deleted successfully.',
+        'data' => null,
+    ]);
+}
 }

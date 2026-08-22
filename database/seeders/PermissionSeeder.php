@@ -33,6 +33,45 @@ class PermissionSeeder extends Seeder
             'branches.view',
             'branches.create',
             'branches.update',
+
+            // Products
+            'products.view',
+            'products.create',
+            'products.update',
+            'products.delete',
+
+            // Sales
+            'sales.view',
+            'sales.create',
+            'sales.update',
+            'sales.cancel',
+
+            // Orders
+            'orders.view',
+            'orders.create',
+            'orders.update',
+            'orders.cancel',
+
+            // Payments
+            'payments.view',
+            'payments.create',
+            'payments.refund',
+            'payments.void',
+
+            // Receipts
+            'receipts.view',
+            'receipts.create',
+            'receipts.print',
+
+            // Inventory
+            'inventory.view',
+            'inventory.receive',
+            'inventory.adjust',
+            'inventory.transfer',
+
+            // Reports
+            'reports.view',
+            'reports.export',
         ];
 
         foreach ($permissions as $permission) {

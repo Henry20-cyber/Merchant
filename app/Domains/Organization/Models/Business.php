@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use App\Domains\Product\Models\Product;
+use App\Domains\Product\Models\ProductBarcode;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Business extends Model
@@ -38,11 +40,15 @@ class Business extends Model
         'timezone',
         'default_country',
         'status',
+        'barcode_enabled',
+        'business_scale',
     ];
 
     protected function casts(): array
     {
         return [
+            'barcode_enabled' => 'boolean',
+            'business_scale' => 'string',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -91,4 +97,20 @@ class Business extends Model
             ])
             ->withTimestamps();
     }
+
+    /**
+ * Products belonging to this business.
+ */
+public function products(): HasMany
+{
+    return $this->hasMany(Product::class);
+}
+
+/**
+ * Barcodes belonging to this business.
+ */
+public function productBarcodes(): HasMany
+{
+    return $this->hasMany(ProductBarcode::class);
+}
 }
