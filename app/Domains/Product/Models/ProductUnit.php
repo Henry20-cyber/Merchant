@@ -7,6 +7,8 @@ use App\Domains\Product\Models\Product;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use App\Domains\Inventory\Models\Stock;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -66,4 +68,12 @@ class ProductUnit extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    /**
+ * Current inventory balance for this unit.
+ */
+public function stock(): HasOne
+{
+    return $this->hasOne(Stock::class);
+}
 }

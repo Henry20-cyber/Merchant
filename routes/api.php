@@ -3,9 +3,11 @@
 use App\Domains\Identity\Controllers\AuthController;
 use App\Domains\Identity\Controllers\RoleController;
 use App\Domains\Product\Controllers\ProductController;
+use App\Domains\Inventory\Controllers\InventoryController;
 use App\Domains\Organization\Controllers\BusinessContextController;
 use App\Domains\Organization\Controllers\BusinessController;
 use App\Domains\Organization\Controllers\BusinessMemberController;
+use App\Domains\Sales\Http\Controllers\SaleController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -293,6 +295,86 @@ Route::middleware([
     )->middleware('permission:products.update');
 });
 
+
+/*
+|--------------------------------------------------------------------------
+| Inventory Management
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'business.context',
+])->group(function () {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Inventory
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/businesses/current/inventory', [
+        InventoryController::class,
+        'index',
+    ])->middleware('permission:inventory.view');
+
+    Route::get('/businesses/current/inventory/{stock}', [
+        InventoryController::class,
+        'show',
+    ])->middleware('permission:inventory.view');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Receive Stock
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post('/businesses/current/inventory/receive', [
+        InventoryController::class,
+        'receive',
+    ])->middleware('permission:inventory.receive');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Adjust Stock
+    |--------------------------------------------------------------------------
+    */
+
+    Route::post('/businesses/current/inventory/adjust', [
+        InventoryController::class,
+        'adjust',
+    ])->middleware('permission:inventory.adjust');
+
+    /*
+    |--------------------------------------------------------------------------
+    | Movement History
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/businesses/current/inventory/{stock}/movements', [
+        InventoryController::class,
+        'movements',
+    ])->middleware('permission:inventory.view');
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Sales
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'business.context',
+])->group(function () {
+
+    Route::post('/businesses/current/sales', [
+        SaleController::class,
+        'store',
+    ])->middleware('permission:sales.create');
+
+});
 
 /*
 |--------------------------------------------------------------------------

@@ -15,73 +15,163 @@ class RoleService
     /**
      * Permissions assigned to MerchantOS system roles.
      */
-   private function rolePermissions(): array
-{
-    return [
+    private function rolePermissions(): array
+    {
+        return [
 
-        'Owner' => [
-            'business.view',
-            'business.update',
+            /*
+            |--------------------------------------------------------------------------
+            | Owner
+            |--------------------------------------------------------------------------
+            */
 
-            'users.view',
-            'users.invite',
-            'users.update',
+            'Owner' => [
+                'business.view',
+                'business.update',
 
-            'roles.view',
-            'roles.create',
-            'roles.update',
-            'roles.delete',
-            'roles.assign',
+                'users.view',
+                'users.invite',
+                'users.update',
 
-            'branches.view',
-            'branches.create',
-            'branches.update',
+                'roles.view',
+                'roles.create',
+                'roles.update',
+                'roles.delete',
+                'roles.assign',
 
-            'products.view',
-            'products.create',
-            'products.update',
-            'products.delete',
-        ],
+                'branches.view',
+                'branches.create',
+                'branches.update',
 
-        'Manager' => [
-            'business.view',
+                'products.view',
+                'products.create',
+                'products.update',
+                'products.delete',
 
-            'users.view',
-            'users.invite',
-            'users.update',
+                 /*
+                  * Sales
+                  */
+                'sales.view',
+                'sales.create',
+                'sales.update',
+                'sales.cancel',
 
-            'roles.view',
+                /*
+     * Inventory
+     */
+                'inventory.view',
+                'inventory.receive',
+                'inventory.adjust',
+                'inventory.transfer',
 
-            'branches.view',
+               
+            ],
 
-            'products.view',
-            'products.create',
-            'products.update',
-        ],
+            /*
+            |--------------------------------------------------------------------------
+            | Manager
+            |--------------------------------------------------------------------------
+            */
 
-        'Cashier' => [
-            'business.view',
+            'Manager' => [
+                'business.view',
 
-            'products.view',
-        ],
+                'users.view',
+                'users.invite',
+                'users.update',
 
-        'Inventory Staff' => [
-            'business.view',
+                'roles.view',
 
-            'branches.view',
+                'branches.view',
 
-            'products.view',
-        ],
-    ];
-}
+                'products.view',
+                'products.create',
+                'products.update',
+                
+                /*
+                 * Sales
+                 */
+                'sales.view',
+                'sales.create',
+
+                /*
+                 * Inventory
+                 */
+                'inventory.view',
+                'inventory.receive',
+                'inventory.adjust',
+                'inventory.transfer',
+
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | Cashier
+            |--------------------------------------------------------------------------
+            */
+
+            'Cashier' => [
+                'business.view',
+
+                'products.view',
+
+                 /*
+                 * Sales
+                 */
+                'sales.view',
+                'sales.create',
+
+                /*
+                 * Cashiers can view inventory,
+                 * but cannot modify it.
+                 */
+                'inventory.view',
+
+               
+            ],
+
+            /*
+            |--------------------------------------------------------------------------
+            | Inventory Staff
+            |--------------------------------------------------------------------------
+            */
+
+            'Inventory Staff' => [
+                'business.view',
+
+                'branches.view',
+
+                'products.view',
+
+                'inventory.view',
+                'inventory.receive',
+                'inventory.adjust',
+                'inventory.transfer',
+            ],
+        ];
+    }
 
     /**
      * Provision the standard MerchantOS roles for a business.
      */
     public function provisionBusinessRoles(string $businessId): void
     {
+        /*
+         * IMPORTANT:
+         *
+         * Spatie Permission is configured with teams.
+         *
+         * Any permission/role operation performed here must happen
+         * inside the business's permission context.
+         */
+        setPermissionsTeamId($businessId);
+
         foreach ($this->rolePermissions() as $roleName => $permissionNames) {
-            $role = Role::firstOrCreate(
+
+            /*
+             * Resolve/create the role explicitly for this business.
+             */
+            $role = Role::query()->firstOrCreate(
                 [
                     'name' => $roleName,
                     'guard_name' => 'web',
@@ -93,8 +183,8 @@ class RoleService
             );
 
             /*
-             * Existing roles may have been created before is_system
-             * was introduced, so enforce the invariant.
+             * Existing roles may have been created before
+             * is_system was introduced.
              */
             if (! $role->is_system) {
                 $role->forceFill([
@@ -102,17 +192,42 @@ class RoleService
                 ])->save();
             }
 
+            /*
+             * Only permissions in the MerchantOS catalog
+             * can be assigned.
+             */
             $validPermissionNames = PermissionCatalog::filterValid(
                 $permissionNames
             );
 
+            /*
+             * Permissions themselves are global.
+             *
+             * The business scope belongs to the role.
+             */
             $permissions = Permission::query()
                 ->where('guard_name', 'web')
                 ->whereIn('name', $validPermissionNames)
                 ->get();
 
+            /*
+             * Replace the role's permissions with the
+             * current standard definition.
+             */
             $role->syncPermissions($permissions);
         }
+
+        /*
+         * Clear cached permission information after provisioning.
+         */
+        app(\Spatie\Permission\PermissionRegistrar::class)
+            ->forgetCachedPermissions();
+
+        /*
+         * Re-establish the business context because cache clearing
+         * must not leave the registrar in an undefined state.
+         */
+        setPermissionsTeamId($businessId);
     }
 
     /**
@@ -124,8 +239,17 @@ class RoleService
         string $businessId
     ): Role {
         /*
+         * Establish the explicit business context.
+         *
+         * Do not depend on the HTTP/session business context here.
+         */
+        setPermissionsTeamId($businessId);
+
+        /*
          * Tenant boundary:
-         * the target user must be an active member of this business.
+         *
+         * The target user must be an active member
+         * of the requested business.
          */
         $isMember = BusinessUser::query()
             ->where('business_id', $businessId)
@@ -140,6 +264,9 @@ class RoleService
             );
         }
 
+        /*
+         * Resolve the role strictly inside the requested business.
+         */
         $role = Role::query()
             ->where('name', $roleName)
             ->where('guard_name', 'web')
@@ -147,39 +274,48 @@ class RoleService
             ->firstOrFail();
 
         /*
-         * We intentionally write the team-scoped pivot explicitly.
+         * Explicitly assign the role with the correct team ID.
          *
-         * MerchantOSTeamResolver represents the authenticated user's
-         * CURRENT business context. Role assignment, however, is an
-         * administrative operation against an explicit business.
-         *
-         * Therefore it must not depend on Auth::user() merely to
-         * populate model_has_roles.team_id.
+         * We deliberately do not call $user->assignRole() here because
+         * the explicit business ID is the authoritative tenant boundary.
          */
         DB::table(
             config('permission.table_names.model_has_roles')
         )->updateOrInsert(
             [
                 config('permission.column_names.model_morph_key')
-                    => $user->getKey(),
+                => $user->getKey(),
 
                 'model_type'
-                    => $user->getMorphClass(),
+                => $user->getMorphClass(),
 
                 'role_id'
-                    => $role->getKey(),
+                => $role->getKey(),
 
                 config('permission.column_names.team_foreign_key')
-                    => $businessId,
+                => $businessId,
             ],
             []
         );
 
         /*
-         * HasRoles may already have loaded the roles relation.
-         * Forget it so subsequent permission checks query fresh data.
+         * Forget stale Eloquent relations.
          */
         $user->unsetRelation('roles');
+        $user->unsetRelation('permissions');
+
+        /*
+         * Clear Spatie's permission cache.
+         */
+        app(\Spatie\Permission\PermissionRegistrar::class)
+            ->forgetCachedPermissions();
+
+        /*
+         * IMPORTANT:
+         *
+         * Restore the correct team context after clearing cache.
+         */
+        setPermissionsTeamId($businessId);
 
         return $role;
     }
@@ -191,6 +327,12 @@ class RoleService
         User $user,
         string $businessId
     ): Role {
+        /*
+         * Explicitly establish tenant context before both
+         * provisioning and assignment.
+         */
+        setPermissionsTeamId($businessId);
+
         $this->provisionBusinessRoles($businessId);
 
         return $this->assignRole(

@@ -7,6 +7,7 @@ use App\Domains\Organization\Services\BusinessContextService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
+use function getPermissionsTeamId;
 use function setPermissionsTeamId;
 
 class SetCurrentBusiness
@@ -24,7 +25,8 @@ class SetCurrentBusiness
         }
 
         /*
-         * API requests should provide an explicit business context.
+         * API requests can explicitly provide the business
+         * they want to operate against.
          */
         $businessId = $request->header('X-Business-ID');
 
@@ -45,13 +47,16 @@ class SetCurrentBusiness
                 ], 403);
             }
 
+            /*
+             * Set the Spatie permission team for this request.
+             */
             setPermissionsTeamId($business->id);
 
             return $next($request);
         }
 
-        /*
-         * Fall back to the existing session-based context.
+             /*
+         * Fall back to MerchantOS's existing business context.
          */
         $context = app(BusinessContextService::class);
 
@@ -59,9 +64,13 @@ class SetCurrentBusiness
 
         if ($business) {
             setPermissionsTeamId($business->id);
-        } else {
-            setPermissionsTeamId(null);
         }
+
+        logger()->debug('MerchantOS permission team', [
+            'user_id' => $user->id,
+            'team_id' => getPermissionsTeamId(),
+            'business_context' => $business?->id,
+        ]);
 
         return $next($request);
     }

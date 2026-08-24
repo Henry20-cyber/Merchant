@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use App\Domains\Inventory\Models\Stock;
 
 class Product extends Model
 {
@@ -63,4 +64,12 @@ class Product extends Model
   {
     return $this->hasMany(ProductBarcode::class);
   }
+
+  /**
+ * Inventory records belonging to this product.
+ */
+public function stocks(): HasMany
+{
+    return $this->hasMany(Stock::class);
+}
 }
