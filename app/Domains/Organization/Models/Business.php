@@ -6,11 +6,15 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Payment\Models\Payment;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductBarcode;
+use App\Domains\Customer\Models\Customer;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Business extends Model
@@ -99,18 +103,56 @@ class Business extends Model
     }
 
     /**
- * Products belonging to this business.
+     * Products belonging to this business.
+     */
+    public function products(): HasMany
+    {
+        return $this->hasMany(Product::class);
+    }
+
+    /**
+     * Barcodes belonging to this business.
+     */
+    public function productBarcodes(): HasMany
+    {
+        return $this->hasMany(ProductBarcode::class);
+    }
+
+    public function capabilities(): HasOne
+    {
+        return $this->hasOne(
+            BusinessCapabilities::class,
+            'business_id'
+        );
+    }
+
+    /**
+     * Customers belonging to this business.
+     */
+    public function customers(): HasMany
+    {
+        return $this->hasMany(
+            Customer::class
+        );
+    }
+
+    /**
+ * Payments belonging to this business.
  */
-public function products(): HasMany
+public function payments(): HasMany
 {
-    return $this->hasMany(Product::class);
+    return $this->hasMany(
+        Payment::class
+    );
 }
 
 /**
- * Barcodes belonging to this business.
+ * Business has one current MerchantOS subscription.
  */
-public function productBarcodes(): HasMany
+public function subscription(): HasOne
 {
-    return $this->hasMany(ProductBarcode::class);
+    return $this->hasOne(
+        Subscription::class
+    );
 }
 }

@@ -7,15 +7,20 @@ use App\Domains\Inventory\Controllers\InventoryController;
 use App\Domains\Organization\Controllers\BusinessContextController;
 use App\Domains\Organization\Controllers\BusinessController;
 use App\Domains\Organization\Controllers\BusinessMemberController;
+use App\Domains\Subscription\Controllers\SubscriptionController;
+use App\Domains\Customer\Controllers\CustomerController;
 use App\Domains\Sales\Http\Controllers\SaleController;
+use App\Domains\Payment\Controllers\PaystackWebhookController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+
 
 /*
 |--------------------------------------------------------------------------
 | Authentication
 |--------------------------------------------------------------------------
 */
+
 
 /*
 |--------------------------------------------------------------------------
@@ -44,8 +49,10 @@ Route::middleware([
     'auth:sanctum',
     'business.context',
 ])->get('/auth/me', function (Request $request) {
+
     return response()->json([
         'success' => true,
+
         'user' => [
             'id' => $request->user()->id,
             'name' => $request->user()->name,
@@ -60,6 +67,7 @@ Route::middleware([
 | Business Management
 |--------------------------------------------------------------------------
 */
+
 
 /*
 |--------------------------------------------------------------------------
@@ -218,6 +226,7 @@ Route::middleware([
     |--------------------------------------------------------------------------
     */
 
+
     /*
     |--------------------------------------------------------------------------
     | Products
@@ -267,7 +276,6 @@ Route::middleware([
         ]
     )->middleware('permission:products.update');
 
-
     Route::put(
         '/businesses/current/products/{product}/units/{unit}',
         [
@@ -275,7 +283,6 @@ Route::middleware([
             'updateUnit',
         ]
     )->middleware('permission:products.update');
-
 
     Route::post(
         '/businesses/current/products/{product}/units/{unit}/base',
@@ -285,7 +292,6 @@ Route::middleware([
         ]
     )->middleware('permission:products.update');
 
-
     Route::delete(
         '/businesses/current/products/{product}/units/{unit}',
         [
@@ -293,6 +299,50 @@ Route::middleware([
             'destroyUnit',
         ]
     )->middleware('permission:products.update');
+});
+
+
+/*
+|--------------------------------------------------------------------------
+| Customer Management
+|--------------------------------------------------------------------------
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'business.context',
+])->group(function () {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Customers
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/businesses/current/customers', [
+        CustomerController::class,
+        'index',
+    ])->middleware('permission:customers.view');
+
+    Route::post('/businesses/current/customers', [
+        CustomerController::class,
+        'store',
+    ])->middleware('permission:customers.create');
+
+    Route::get('/businesses/current/customers/{customer}', [
+        CustomerController::class,
+        'show',
+    ])->middleware('permission:customers.view');
+
+    Route::put('/businesses/current/customers/{customer}', [
+        CustomerController::class,
+        'update',
+    ])->middleware('permission:customers.update');
+
+    Route::delete('/businesses/current/customers/{customer}', [
+        CustomerController::class,
+        'destroy',
+    ])->middleware('permission:customers.delete');
 });
 
 
@@ -323,6 +373,7 @@ Route::middleware([
         'show',
     ])->middleware('permission:inventory.view');
 
+
     /*
     |--------------------------------------------------------------------------
     | Receive Stock
@@ -334,6 +385,7 @@ Route::middleware([
         'receive',
     ])->middleware('permission:inventory.receive');
 
+
     /*
     |--------------------------------------------------------------------------
     | Adjust Stock
@@ -344,6 +396,7 @@ Route::middleware([
         InventoryController::class,
         'adjust',
     ])->middleware('permission:inventory.adjust');
+
 
     /*
     |--------------------------------------------------------------------------
@@ -369,12 +422,99 @@ Route::middleware([
     'business.context',
 ])->group(function () {
 
+    /*
+    |--------------------------------------------------------------------------
+    | Sales Dashboard
+    |--------------------------------------------------------------------------
+    |
+    | Read-only sales analytics.
+    |
+    */
+
+    Route::get('/businesses/current/sales/dashboard', [
+        SaleController::class,
+        'dashboard',
+    ])->middleware('permission:sales.view');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Create Sale
+    |--------------------------------------------------------------------------
+    */
+
     Route::post('/businesses/current/sales', [
         SaleController::class,
         'store',
     ])->middleware('permission:sales.create');
-
 });
+
+
+/*
+|--------------------------------------------------------------------------
+| Subscription Plans
+|--------------------------------------------------------------------------
+|
+| Public endpoint.
+|
+| Businesses/users need to be able to view available plans
+| before selecting a subscription.
+|
+*/
+
+Route::get('/subscription-plans', [
+    SubscriptionController::class,
+    'plans',
+]);
+
+
+/*
+|--------------------------------------------------------------------------
+| Current Business Subscription
+|--------------------------------------------------------------------------
+|
+| Requires:
+|
+| - authenticated user
+| - active business context
+|
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'business.context',
+])->group(function () {
+
+    /*
+    |--------------------------------------------------------------------------
+    | View Current Subscription
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/businesses/current/subscription', [
+        SubscriptionController::class,
+        'current',
+    ]);
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Subscription Checkout
+    |--------------------------------------------------------------------------
+    |
+    | Creates a pending subscription payment and initializes
+    | the configured payment gateway.
+    |
+    | The subscription is NOT activated here.
+    |
+    */
+
+    Route::post('/businesses/current/subscription/checkout', [
+        SubscriptionController::class,
+        'checkout',
+    ]);
+});
+
 
 /*
 |--------------------------------------------------------------------------
@@ -390,10 +530,29 @@ if (app()->environment('local')) {
     Route::middleware('auth:sanctum')->get(
         '/debug/auth-context',
         function (Request $request) {
+
             return response()->json([
                 'user_id' => $request->user()->id,
-                'session_business_id' => session('current_business_id'),
+                'session_business_id' => session(
+                    'current_business_id'
+                ),
             ]);
         }
     );
 }
+
+
+/*
+|--------------------------------------------------------------------------
+| Paystack Webhooks
+|--------------------------------------------------------------------------
+|
+| Paystack must be able to reach this endpoint without a
+| MerchantOS authentication token.
+|
+*/
+
+Route::post('/webhooks/paystack', [
+    PaystackWebhookController::class,
+    'handle',
+]);

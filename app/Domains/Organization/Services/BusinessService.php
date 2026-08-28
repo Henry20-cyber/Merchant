@@ -4,6 +4,7 @@ namespace App\Domains\Organization\Services;
 
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\BusinessCapabilities;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Models\User;
@@ -18,6 +19,8 @@ class BusinessService
         return DB::transaction(function () use ($data) {
             $business = $this->createBusiness($data);
 
+            $this->createCapabilities($business, $data);
+
             $this->createHeadOffice($business, $data);
 
             return $business;
@@ -27,7 +30,7 @@ class BusinessService
     /**
      * Create the business.
      */
-    private function createBusiness(array $data): Business
+     private function createBusiness(array $data): Business
     {
         return Business::create([
             'business_type_id' => $data['business_type_id'],
@@ -53,6 +56,24 @@ class BusinessService
             'timezone' => $data['timezone'] ?? 'Africa/Lagos',
 
             'status' => 'trial',
+        ]);
+    }
+
+      /**
+     * Create the initial business capabilities.
+     */
+    private function createCapabilities(
+        Business $business,
+        array $data
+    ): BusinessCapabilities {
+        return $business->capabilities()->create([
+            'products_enabled' => (bool) (
+                $data['products_enabled'] ?? false
+            ),
+
+            'services_enabled' => (bool) (
+                $data['services_enabled'] ?? false
+            ),
         ]);
     }
 

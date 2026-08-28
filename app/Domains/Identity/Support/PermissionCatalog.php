@@ -43,6 +43,13 @@ class PermissionCatalog
             'products.delete',
         ],
 
+        'customers' => [
+            'customers.view',
+            'customers.create',
+            'customers.update',
+            'customers.delete',
+        ],
+
         'sales' => [
             'sales.view',
             'sales.create',
@@ -121,8 +128,8 @@ class PermissionCatalog
         return array_values(
             array_filter(
                 $permissions,
-                fn (string $permission) =>
-                    self::contains($permission)
+                fn(string $permission) =>
+                self::contains($permission)
             )
         );
     }

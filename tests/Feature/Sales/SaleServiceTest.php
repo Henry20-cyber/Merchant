@@ -8,6 +8,8 @@ use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Sales\Services\SaleService;
 use App\Domains\Service\Models\Service;
 use App\Models\User;
@@ -22,6 +24,9 @@ class SaleServiceTest extends TestCase
     public function test_service_can_be_sold(): void
     {
         $business = Business::factory()->create();
+
+        $this->createSubscriptionFor($business);
+
         $cashier = User::factory()->create();
 
         $service = Service::factory()->create([
@@ -61,6 +66,9 @@ class SaleServiceTest extends TestCase
     public function test_service_sale_preserves_historical_price(): void
     {
         $business = Business::factory()->create();
+
+        $this->createSubscriptionFor($business);
+
         $cashier = User::factory()->create();
 
         $service = Service::factory()->create([
@@ -111,6 +119,9 @@ class SaleServiceTest extends TestCase
     public function test_service_sale_does_not_create_stock_movement(): void
     {
         $business = Business::factory()->create();
+
+        $this->createSubscriptionFor($business);
+
         $cashier = User::factory()->create();
 
         $service = Service::factory()->create([
@@ -144,6 +155,9 @@ class SaleServiceTest extends TestCase
     public function test_service_from_another_business_is_rejected(): void
     {
         $businessA = Business::factory()->create();
+
+        $this->createSubscriptionFor($businessA);
+
         $businessB = Business::factory()->create();
 
         $cashier = User::factory()->create();
@@ -173,6 +187,9 @@ class SaleServiceTest extends TestCase
     public function test_inactive_service_cannot_be_sold(): void
     {
         $business = Business::factory()->create();
+
+        $this->createSubscriptionFor($business);
+
         $cashier = User::factory()->create();
 
         $service = Service::factory()->create([
@@ -200,6 +217,9 @@ class SaleServiceTest extends TestCase
     public function test_sale_can_contain_product_and_service(): void
     {
         $business = Business::factory()->create();
+
+        $this->createSubscriptionFor($business);
+
         $cashier = User::factory()->create();
 
         /*
@@ -284,4 +304,26 @@ class SaleServiceTest extends TestCase
             1
         );
     }
+
+    private function createSubscriptionFor(
+    Business $business
+): Subscription {
+    $plan = SubscriptionPlan::factory()->create([
+        'transaction_daily_limit' => 1000,
+        'transaction_monthly_limit' => 10000,
+        'is_active' => true,
+    ]);
+
+    return Subscription::factory()->create([
+        'business_id' => $business->id,
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now()->subDay(),
+        'current_period_start' => now()->subDay(),
+        'current_period_end' => now()->addMonth(),
+        'grace_period_ends_at' => null,
+        'cancelled_at' => null,
+        'ended_at' => null,
+    ]);
+}
 }

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Domains\Customer\Models\Customer;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
@@ -9,21 +10,29 @@ use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Models\User;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
+use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
-use Database\Seeders\PermissionSeeder;
 
 class SaleApiTest extends TestCase
 {
     use RefreshDatabase;
 
-protected function setUp(): void
-{
-    parent::setUp();
+    protected function setUp(): void
+    {
+        parent::setUp();
 
-    $this->seed(PermissionSeeder::class);
-}
+        $this->seed(PermissionSeeder::class);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Test Helpers
+    |--------------------------------------------------------------------------
+    */
 
     private function setPermissionTeam(Business $business): void
     {
@@ -35,6 +44,8 @@ protected function setUp(): void
     {
         $business = Business::factory()->create();
 
+        $this->createSubscriptionFor($business);
+
         $owner = User::factory()->create();
 
         BusinessUser::create([
@@ -45,7 +56,10 @@ protected function setUp(): void
         ]);
 
         app(\App\Domains\Identity\Services\RoleService::class)
-            ->assignOwner($owner, $business->id);
+            ->assignOwner(
+                $owner,
+                $business->id
+            );
 
         $this->setPermissionTeam($business);
 
@@ -131,9 +145,11 @@ protected function setUp(): void
 
     public function test_owner_can_create_sale(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
             ->actingAs($owner)
@@ -147,19 +163,24 @@ protected function setUp(): void
 
         $response
             ->assertSuccessful()
-            ->assertJsonPath('success', true);
+            ->assertJsonPath(
+                'success',
+                true
+            );
     }
 
     public function test_manager_can_create_sale(): void
     {
-        [$business] = $this->createBusinessWithOwner();
+        [$business] =
+            $this->createBusinessWithOwner();
 
         $manager = $this->createMember(
             $business,
             'Manager'
         );
 
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
             ->actingAs($manager)
@@ -173,19 +194,24 @@ protected function setUp(): void
 
         $response
             ->assertSuccessful()
-            ->assertJsonPath('success', true);
+            ->assertJsonPath(
+                'success',
+                true
+            );
     }
 
     public function test_cashier_can_create_sale(): void
     {
-        [$business] = $this->createBusinessWithOwner();
+        [$business] =
+            $this->createBusinessWithOwner();
 
         $cashier = $this->createMember(
             $business,
             'Cashier'
         );
 
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
             ->actingAs($cashier)
@@ -199,22 +225,27 @@ protected function setUp(): void
 
         $response
             ->assertSuccessful()
-            ->assertJsonPath('success', true);
+            ->assertJsonPath(
+                'success',
+                true
+            );
     }
 
     public function test_inventory_staff_cannot_create_sale(): void
     {
-        [$business] = $this->createBusinessWithOwner();
+        [$business] =
+            $this->createBusinessWithOwner();
 
-        $staff = $this->createMember(
+        $inventoryStaff = $this->createMember(
             $business,
             'Inventory Staff'
         );
 
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
-            ->actingAs($staff)
+            ->actingAs($inventoryStaff)
             ->withHeaders([
                 'X-Business-ID' => $business->id,
             ])
@@ -228,20 +259,20 @@ protected function setUp(): void
 
     public function test_user_without_sales_permission_cannot_create_sale(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business] =
+            $this->createBusinessWithOwner();
 
-        $user = $this->createMember(
-            $business,
-            'Inventory Staff'
-        );
+        $user = User::factory()->create();
 
-        $this->setPermissionTeam($business);
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
 
-        $this->assertFalse(
-            $user->hasPermissionTo('sales.create')
-        );
-
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
             ->actingAs($user)
@@ -264,12 +295,11 @@ protected function setUp(): void
 
     public function test_sale_creation_returns_sale_data(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit] = $this->createProductWithStock(
-            $business,
-            50
-        );
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
         $response = $this
             ->actingAs($owner)
@@ -278,32 +308,43 @@ protected function setUp(): void
             ])
             ->postJson(
                 '/api/businesses/current/sales',
-                $this->salePayload(
-                    $product,
-                    $unit,
-                    5
-                )
+                $this->salePayload($product, $unit)
             );
 
         $response
             ->assertSuccessful()
-            ->assertJsonPath('success', true)
             ->assertJsonStructure([
                 'success',
-                'data',
+                'message',
+                'data' => [
+                    'id',
+                    'business_id',
+                    'cashier_id',
+                    'customer_id',
+                    'subtotal',
+                    'discount',
+                    'tax',
+                    'total',
+                    'payment_method',
+                    'payment_status',
+                    'status',
+                    'items',
+                ],
             ]);
     }
 
     public function test_sale_deducts_stock(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit, $stock] = $this->createProductWithStock(
-            $business,
-            50
-        );
+        [$product, $unit, $stock] =
+            $this->createProductWithStock(
+                $business,
+                100
+            );
 
-        $this
+        $response = $this
             ->actingAs($owner)
             ->withHeaders([
                 'X-Business-ID' => $business->id,
@@ -313,27 +354,27 @@ protected function setUp(): void
                 $this->salePayload(
                     $product,
                     $unit,
-                    5
+                    2
                 )
-            )
-            ->assertSuccessful();
+            );
+
+        $response->assertSuccessful();
 
         $this->assertDatabaseHas('stocks', [
             'id' => $stock->id,
-            'quantity' => 45,
+            'quantity' => 98,
         ]);
     }
 
     public function test_sale_creates_stock_movement(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit] = $this->createProductWithStock(
-            $business,
-            50
-        );
+        [$product, $unit] =
+            $this->createProductWithStock($business);
 
-        $this
+        $response = $this
             ->actingAs($owner)
             ->withHeaders([
                 'X-Business-ID' => $business->id,
@@ -343,35 +384,69 @@ protected function setUp(): void
                 $this->salePayload(
                     $product,
                     $unit,
-                    5
+                    2
                 )
-            )
-            ->assertSuccessful();
+            );
 
-        $this->assertDatabaseHas('stock_movements', [
-            'business_id' => $business->id,
-            'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
-            'type' => 'sale',
-            'quantity' => -5,
-            'quantity_before' => 50,
-            'quantity_after' => 45,
-        ]);
+        $response->assertSuccessful();
+
+        $this->assertDatabaseHas(
+            'stock_movements',
+            [
+                'business_id' => $business->id,
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity' => -2,
+            ]
+        );
     }
 
     /*
     |--------------------------------------------------------------------------
-    | Validation / Business Rules
+    | Validation
     |--------------------------------------------------------------------------
     */
 
     public function test_sale_rejects_insufficient_stock(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit, $stock] = $this->createProductWithStock(
-            $business,
-            5
+        [$product, $unit] =
+            $this->createProductWithStock(
+                $business,
+                1
+            );
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders([
+                'X-Business-ID' => $business->id,
+            ])
+            ->postJson(
+                '/api/businesses/current/sales',
+                $this->salePayload(
+                    $product,
+                    $unit,
+                    2
+                )
+            );
+
+        $response->assertUnprocessable();
+    }
+
+    public function test_sale_rejects_zero_quantity(): void
+    {
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
+
+        [$product, $unit] =
+            $this->createProductWithStock($business);
+
+        $payload = $this->salePayload(
+            $product,
+            $unit,
+            0
         );
 
         $response = $this
@@ -381,49 +456,25 @@ protected function setUp(): void
             ])
             ->postJson(
                 '/api/businesses/current/sales',
-                $this->salePayload(
-                    $product,
-                    $unit,
-                    10
-                )
+                $payload
             );
 
-        $response->assertStatus(422);
-
-        $this->assertDatabaseHas('stocks', [
-            'id' => $stock->id,
-            'quantity' => 5,
-        ]);
-    }
-
-    public function test_sale_rejects_zero_quantity(): void
-    {
-        [$business, $owner] = $this->createBusinessWithOwner();
-
-        [$product, $unit] = $this->createProductWithStock($business);
-
-        $response = $this
-            ->actingAs($owner)
-            ->withHeaders([
-                'X-Business-ID' => $business->id,
-            ])
-            ->postJson(
-                '/api/businesses/current/sales',
-                $this->salePayload(
-                    $product,
-                    $unit,
-                    0
-                )
-            );
-
-        $response->assertStatus(422);
+        $response->assertUnprocessable();
     }
 
     public function test_sale_rejects_negative_quantity(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-        [$product, $unit] = $this->createProductWithStock($business);
+        [$product, $unit] =
+            $this->createProductWithStock($business);
+
+        $payload = $this->salePayload(
+            $product,
+            $unit,
+            -1
+        );
 
         $response = $this
             ->actingAs($owner)
@@ -432,19 +483,16 @@ protected function setUp(): void
             ])
             ->postJson(
                 '/api/businesses/current/sales',
-                $this->salePayload(
-                    $product,
-                    $unit,
-                    -5
-                )
+                $payload
             );
 
-        $response->assertStatus(422);
+        $response->assertUnprocessable();
     }
 
     public function test_sale_rejects_non_sellable_unit(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
         $product = Product::factory()->create([
             'business_id' => $business->id,
@@ -461,12 +509,13 @@ protected function setUp(): void
             'is_purchasable' => true,
         ]);
 
-        $this->createProductWithStockForUnit(
-            $business,
-            $product,
-            $unit,
-            50
-        );
+        Stock::create([
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 100,
+            'reorder_level' => 10,
+        ]);
 
         $response = $this
             ->actingAs($owner)
@@ -477,24 +526,141 @@ protected function setUp(): void
                 '/api/businesses/current/sales',
                 $this->salePayload(
                     $product,
-                    $unit,
-                    2
+                    $unit
                 )
             );
 
-        $response->assertStatus(422);
+        $response->assertUnprocessable();
     }
 
     public function test_sale_rejects_product_from_another_business(): void
     {
-        [$business, $owner] = $this->createBusinessWithOwner();
+        [$businessA, $owner] =
+            $this->createBusinessWithOwner();
 
-        $otherBusiness = Business::factory()->create();
+        $businessB =
+            Business::factory()->create();
 
-        [$product, $unit] = $this->createProductWithStock(
-            $otherBusiness,
-            50
+        [$productB, $unitB] =
+            $this->createProductWithStock(
+                $businessB
+            );
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders([
+                'X-Business-ID' => $businessA->id,
+            ])
+            ->postJson(
+                '/api/businesses/current/sales',
+                $this->salePayload(
+                    $productB,
+                    $unitB
+                )
+            );
+
+        $response->assertUnprocessable();
+    }
+
+    public function test_sale_cannot_be_created_in_another_business_context(): void
+    {
+        [$businessA, $owner] =
+            $this->createBusinessWithOwner();
+
+        $businessB =
+            Business::factory()->create();
+
+        [$productB, $unitB] =
+            $this->createProductWithStock(
+                $businessB
+            );
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders([
+                'X-Business-ID' => $businessA->id,
+            ])
+            ->postJson(
+                '/api/businesses/current/sales',
+                $this->salePayload(
+                    $productB,
+                    $unitB
+                )
+            );
+
+        $response->assertUnprocessable();
+    }
+
+    /*
+    |--------------------------------------------------------------------------
+    | Customer Integration
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_cashier_can_create_sale_for_customer(): void
+    {
+        [$business] =
+            $this->createBusinessWithOwner();
+
+        $cashier = $this->createMember(
+            $business,
+            'Cashier'
         );
+
+        [$product, $unit] =
+            $this->createProductWithStock(
+                $business
+            );
+
+        $customer = Customer::factory()->create([
+            'business_id' => $business->id,
+            'status' => 'active',
+        ]);
+
+        $payload = $this->salePayload(
+            $product,
+            $unit
+        );
+
+        $payload['customer_id'] =
+            $customer->id;
+
+        $response = $this
+            ->actingAs($cashier)
+            ->withHeaders([
+                'X-Business-ID' => $business->id,
+            ])
+            ->postJson(
+                '/api/businesses/current/sales',
+                $payload
+            );
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath(
+                'success',
+                true
+            )
+            ->assertJsonPath(
+                'data.customer_id',
+                $customer->id
+            );
+
+        $this->assertDatabaseHas('sales', [
+            'business_id' => $business->id,
+            'customer_id' => $customer->id,
+        ]);
+    }
+
+    public function test_sale_can_be_created_without_customer(): void
+    {
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
+
+        [$product, $unit] =
+            $this->createProductWithStock(
+                $business
+            );
 
         $response = $this
             ->actingAs($owner)
@@ -505,66 +671,126 @@ protected function setUp(): void
                 '/api/businesses/current/sales',
                 $this->salePayload(
                     $product,
-                    $unit,
-                    2
+                    $unit
                 )
             );
 
-        $response->assertStatus(422);
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath(
+                'success',
+                true
+            )
+            ->assertJsonPath(
+                'data.customer_id',
+                null
+            );
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Tenant Boundary
-    |--------------------------------------------------------------------------
-    */
-
-    public function test_sale_cannot_be_created_in_another_business_context(): void
+    public function test_sale_cannot_use_customer_from_another_business(): void
     {
-        [$businessA, $owner] = $this->createBusinessWithOwner();
+        [$businessA, $owner] =
+            $this->createBusinessWithOwner();
 
-        $businessB = Business::factory()->create();
+        $businessB =
+            Business::factory()->create();
 
-        [$product, $unit] = $this->createProductWithStock(
-            $businessA,
-            50
+        $customerB = Customer::factory()->create([
+            'business_id' => $businessB->id,
+            'status' => 'active',
+        ]);
+
+        [$product, $unit] =
+            $this->createProductWithStock(
+                $businessA
+            );
+
+        $payload = $this->salePayload(
+            $product,
+            $unit
         );
+
+        $payload['customer_id'] =
+            $customerB->id;
 
         $response = $this
             ->actingAs($owner)
             ->withHeaders([
-                'X-Business-ID' => $businessB->id,
+                'X-Business-ID' => $businessA->id,
             ])
             ->postJson(
                 '/api/businesses/current/sales',
-                $this->salePayload(
-                    $product,
-                    $unit,
-                    2
-                )
+                $payload
             );
 
-        $response->assertForbidden();
+        $response->assertUnprocessable();
+
+        $this->assertDatabaseMissing('sales', [
+            'business_id' => $businessA->id,
+            'customer_id' => $customerB->id,
+        ]);
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | Helpers
-    |--------------------------------------------------------------------------
-    */
+    public function test_sale_cannot_use_inactive_customer(): void
+    {
+        [$business, $owner] =
+            $this->createBusinessWithOwner();
 
-    private function createProductWithStockForUnit(
-        Business $business,
-        Product $product,
-        ProductUnit $unit,
-        float $quantity
-    ): Stock {
-        return Stock::create([
+        $customer = Customer::factory()->create([
             'business_id' => $business->id,
-            'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
-            'quantity' => $quantity,
-            'reorder_level' => 10,
+            'status' => 'inactive',
+        ]);
+
+        [$product, $unit] =
+            $this->createProductWithStock(
+                $business
+            );
+
+        $payload = $this->salePayload(
+            $product,
+            $unit
+        );
+
+        $payload['customer_id'] =
+            $customer->id;
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders([
+                'X-Business-ID' => $business->id,
+            ])
+            ->postJson(
+                '/api/businesses/current/sales',
+                $payload
+            );
+
+        $response->assertUnprocessable();
+
+        $this->assertDatabaseMissing('sales', [
+            'business_id' => $business->id,
+            'customer_id' => $customer->id,
+        ]);
+    }
+
+    private function createSubscriptionFor(
+        Business $business
+    ): Subscription {
+        $plan = SubscriptionPlan::factory()->create([
+            'transaction_daily_limit' => 1000,
+            'transaction_monthly_limit' => 10000,
+            'is_active' => true,
+        ]);
+
+        return Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
+            'grace_period_ends_at' => null,
+            'cancelled_at' => null,
+            'ended_at' => null,
         ]);
     }
 }

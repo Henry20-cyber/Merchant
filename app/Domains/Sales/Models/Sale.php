@@ -5,6 +5,8 @@ namespace App\Domains\Sales\Models;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Sales\Models\SaleItem;
 use App\Models\User;
+use App\Domains\Customer\Models\Customer;
+use App\Domains\Payment\Models\Payment;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -57,4 +59,25 @@ class Sale extends Model
   {
     return $this->hasMany(SaleItem::class);
   }
+
+  /**
+ * Sale optionally belongs to a customer.
+ */
+public function customer(): BelongsTo
+{
+    return $this->belongsTo(
+        Customer::class
+    );
+}
+
+/**
+ * Payments made against this sale.
+ */
+public function payments(): HasMany
+{
+    return $this->hasMany(
+        Payment::class
+    );
+}
+
 }

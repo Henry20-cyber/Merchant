@@ -46,16 +46,24 @@ class SetCurrentBusiness
                     'message' => 'You do not belong to this business.',
                 ], 403);
             }
+            /*
+ * Set the Spatie permission team for this request.
+ */
+            setPermissionsTeamId($business->id);
 
             /*
-             * Set the Spatie permission team for this request.
-             */
-            setPermissionsTeamId($business->id);
+ * Make the resolved business available to
+ * downstream middleware and controllers.
+ */
+            $request->attributes->set(
+                'current_business',
+                $business
+            );
 
             return $next($request);
         }
 
-             /*
+        /*
          * Fall back to MerchantOS's existing business context.
          */
         $context = app(BusinessContextService::class);
@@ -64,6 +72,15 @@ class SetCurrentBusiness
 
         if ($business) {
             setPermissionsTeamId($business->id);
+
+            /*
+     * Make the resolved business available to
+     * downstream middleware and controllers.
+     */
+            $request->attributes->set(
+                'current_business',
+                $business
+            );
         }
 
         logger()->debug('MerchantOS permission team', [

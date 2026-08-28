@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\HandleInertiaRequests;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -15,6 +16,21 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+
+    /*
+    |--------------------------------------------------------------------------
+    | Scheduled Tasks
+    |--------------------------------------------------------------------------
+    |
+    | MerchantOS background maintenance tasks.
+    |
+    */
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('subscriptions:process')
+            ->everyMinute()
+            ->withoutOverlapping();
+    })
+
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
 
@@ -23,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'business.context' => \App\Http\Middleware\SetCurrentBusiness::class,
+            'subscription' => \App\Http\Middleware\EnsureSubscriptionIsUsable::class,
         ]);
 
         $middleware->web(append: [
@@ -30,6 +47,7 @@ return Application::configure(basePath: dirname(__DIR__))
             AddLinkHeadersForPreloadedAssets::class,
         ]);
     })
+
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) =>
@@ -48,4 +66,5 @@ return Application::configure(basePath: dirname(__DIR__))
             }
         });
     })
+
     ->create();

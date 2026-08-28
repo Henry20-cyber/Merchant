@@ -3,6 +3,7 @@
 namespace App\Domains\Organization\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreBusinessRequest extends FormRequest
 {
@@ -20,7 +21,6 @@ class StoreBusinessRequest extends FormRequest
     public function rules(): array
     {
         return [
-
             'business_type_id' => [
                 'required',
                 'uuid',
@@ -96,6 +96,50 @@ class StoreBusinessRequest extends FormRequest
                 'string',
                 'max:100',
             ],
+
+            /*
+             * Business capabilities.
+             *
+             * The onboarding flow must explicitly tell
+             * MerchantOS whether the business sells products,
+             * services, or both.
+             */
+            'products_enabled' => [
+                'required',
+                'boolean',
+            ],
+
+            'services_enabled' => [
+                'required',
+                'boolean',
+            ],
+        ];
+    }
+
+    /**
+     * Add cross-field validation.
+     *
+     * At least one business capability must be enabled.
+     */
+    public function after(): array
+    {
+        return [
+            function (Validator $validator): void {
+                $productsEnabled = $this->boolean(
+                    'products_enabled'
+                );
+
+                $servicesEnabled = $this->boolean(
+                    'services_enabled'
+                );
+
+                if (! $productsEnabled && ! $servicesEnabled) {
+                    $validator->errors()->add(
+                        'capabilities',
+                        'At least one of products or services must be enabled.'
+                    );
+                }
+            },
         ];
     }
 }

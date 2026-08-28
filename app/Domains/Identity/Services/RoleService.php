@@ -48,7 +48,15 @@ class RoleService
                 'products.update',
                 'products.delete',
 
-                 /*
+                /*
+                  * Customers
+                  */
+                'customers.view',
+                'customers.create',
+                'customers.update',
+                'customers.delete',
+
+                /*
                   * Sales
                   */
                 'sales.view',
@@ -64,7 +72,7 @@ class RoleService
                 'inventory.adjust',
                 'inventory.transfer',
 
-               
+
             ],
 
             /*
@@ -87,7 +95,15 @@ class RoleService
                 'products.view',
                 'products.create',
                 'products.update',
-                
+
+                /*
+                 * Customers
+                 */
+                'customers.view',
+                'customers.create',
+                'customers.update',
+
+
                 /*
                  * Sales
                  */
@@ -115,7 +131,13 @@ class RoleService
 
                 'products.view',
 
-                 /*
+                /*
+                 * Customers
+                 */
+                'customers.view',
+                'customers.create',
+
+                /*
                  * Sales
                  */
                 'sales.view',
@@ -127,7 +149,7 @@ class RoleService
                  */
                 'inventory.view',
 
-               
+
             ],
 
             /*

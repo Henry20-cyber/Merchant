@@ -2,11 +2,13 @@
 
 namespace App\Domains\Sales\Services;
 
+use App\Domains\Customer\Models\Customer;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
+use App\Domains\Subscription\Services\UsageService;
 use App\Domains\Service\Models\Service;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
@@ -16,6 +18,14 @@ use Illuminate\Validation\ValidationException;
 
 class SaleService
 {
+
+    private UsageService $usageService;
+
+    public function __construct(
+        UsageService $usageService
+    ) {
+        $this->usageService = $usageService;
+    }
     /**
      * Create a completed sale and process all items atomically.
      *
@@ -36,7 +46,7 @@ class SaleService
         Business $business,
         User $cashier,
         array $items,
-        array $saleData = []
+        array $saleData = [],
     ): Sale {
         if ($items === []) {
             throw ValidationException::withMessages([
@@ -50,8 +60,52 @@ class SaleService
             $items,
             $saleData
         ): Sale {
+            $this->usageService->consumeTransaction($business);
+            
             $preparedItems = [];
             $subtotal = 0.0;
+
+
+            /*
+|--------------------------------------------------------------------------
+| Customer
+|--------------------------------------------------------------------------
+|
+| Customers are optional because MerchantOS supports walk-in sales.
+|
+| When a customer is supplied, however, that customer must:
+|
+| - belong to the current business
+| - be active
+|
+| This prevents customer records from crossing tenant boundaries.
+|
+*/
+
+            $customer = null;
+
+            $customerId = $saleData['customer_id'] ?? null;
+
+            if ($customerId) {
+                $customer = Customer::query()
+                    ->where('id', $customerId)
+                    ->where('business_id', $business->id)
+                    ->first();
+
+                if (! $customer) {
+                    throw ValidationException::withMessages([
+                        'customer_id' =>
+                        'Customer does not belong to this business.',
+                    ]);
+                }
+
+                if ($customer->status !== 'active') {
+                    throw ValidationException::withMessages([
+                        'customer_id' =>
+                        'This customer is not active.',
+                    ]);
+                }
+            }
 
             /*
              * Validate and prepare every item before
@@ -100,7 +154,7 @@ class SaleService
             $sale = Sale::create([
                 'business_id' => $business->id,
                 'cashier_id' => $cashier->id,
-                'customer_id' => $saleData['customer_id'] ?? null,
+                'customer_id' => $customer?->id,
                 'subtotal' => $subtotal,
                 'discount' => $discount,
                 'tax' => $tax,
@@ -123,6 +177,7 @@ class SaleService
                 'items.productUnit',
                 'items.service',
                 'cashier',
+                'customer',
             ]);
         });
     }
@@ -153,7 +208,7 @@ class SaleService
         ) {
             throw ValidationException::withMessages([
                 "items.$index" =>
-                    'A sale item must contain either a product or a service.',
+                'A sale item must contain either a product or a service.',
             ]);
         }
 
@@ -164,7 +219,7 @@ class SaleService
         if ($quantity === null || $quantity <= 0) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                    'Quantity must be greater than zero.',
+                'Quantity must be greater than zero.',
             ]);
         }
 
@@ -184,14 +239,14 @@ class SaleService
             if (! $service) {
                 throw ValidationException::withMessages([
                     "items.$index.service_id" =>
-                        'Service does not belong to this business.',
+                    'Service does not belong to this business.',
                 ]);
             }
 
             if (! $service->is_active) {
                 throw ValidationException::withMessages([
                     "items.$index.service_id" =>
-                        'This service is not active.',
+                    'This service is not active.',
                 ]);
             }
 
@@ -218,21 +273,21 @@ class SaleService
             if ($unitPrice < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.unit_price" =>
-                        'Unit price cannot be negative.',
+                    'Unit price cannot be negative.',
                 ]);
             }
 
             if ($unitCost < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.unit_cost" =>
-                        'Unit cost cannot be negative.',
+                    'Unit cost cannot be negative.',
                 ]);
             }
 
             if ($discount < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.discount" =>
-                        'Item discount cannot be negative.',
+                    'Item discount cannot be negative.',
                 ]);
             }
 
@@ -241,7 +296,7 @@ class SaleService
             if ($discount > $lineSubtotal) {
                 throw ValidationException::withMessages([
                     "items.$index.discount" =>
-                        'Item discount cannot exceed the item subtotal.',
+                    'Item discount cannot exceed the item subtotal.',
                 ]);
             }
 
@@ -270,7 +325,7 @@ class SaleService
         if (! $unitId) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                    'Product unit is required.',
+                'Product unit is required.',
             ]);
         }
 
@@ -286,7 +341,7 @@ class SaleService
         if (! $product) {
             throw ValidationException::withMessages([
                 "items.$index.product_id" =>
-                    'Product does not belong to this business.',
+                'Product does not belong to this business.',
             ]);
         }
 
@@ -304,14 +359,14 @@ class SaleService
         if (! $unit) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                    'Product unit does not belong to the selected product.',
+                'Product unit does not belong to the selected product.',
             ]);
         }
 
         if (! $unit->is_sellable) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                    'This product unit is not sellable.',
+                'This product unit is not sellable.',
             ]);
         }
 
@@ -329,7 +384,7 @@ class SaleService
         if (! $stock) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                    'No inventory record exists for this product unit.',
+                'No inventory record exists for this product unit.',
             ]);
         }
 
@@ -338,7 +393,7 @@ class SaleService
         if ($quantity > $available) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                    "Insufficient stock. Available quantity: {$available}.",
+                "Insufficient stock. Available quantity: {$available}.",
             ]);
         }
 
@@ -357,21 +412,21 @@ class SaleService
         if ($unitPrice < 0) {
             throw ValidationException::withMessages([
                 "items.$index.unit_price" =>
-                    'Unit price cannot be negative.',
+                'Unit price cannot be negative.',
             ]);
         }
 
         if ($unitCost < 0) {
             throw ValidationException::withMessages([
                 "items.$index.unit_cost" =>
-                    'Unit cost cannot be negative.',
+                'Unit cost cannot be negative.',
             ]);
         }
 
         if ($discount < 0) {
             throw ValidationException::withMessages([
                 "items.$index.discount" =>
-                    'Item discount cannot be negative.',
+                'Item discount cannot be negative.',
             ]);
         }
 
@@ -380,7 +435,7 @@ class SaleService
         if ($discount > $lineSubtotal) {
             throw ValidationException::withMessages([
                 "items.$index.discount" =>
-                    'Item discount cannot exceed the item subtotal.',
+                'Item discount cannot exceed the item subtotal.',
             ]);
         }
 
