@@ -3,6 +3,7 @@
 namespace Tests\Feature\Organization;
 
 use App\Domains\Organization\Models\Business;
+use Database\Seeders\SubscriptionPlanSeeder;
 use App\Domains\Organization\Services\BusinessService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -10,6 +11,13 @@ use Tests\TestCase;
 class BusinessRegistrationCapabilitiesTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+{
+    parent::setUp();
+
+    $this->seed(SubscriptionPlanSeeder::class);
+}
 
     private function businessData(
         bool $productsEnabled,

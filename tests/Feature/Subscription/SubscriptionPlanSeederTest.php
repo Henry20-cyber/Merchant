@@ -11,24 +11,25 @@ class SubscriptionPlanSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_standard_subscription_plans_are_seeded(): void
-    {
-        $this->seed(SubscriptionPlanSeeder::class);
+  public function test_subscription_plans_are_seeded(): void
+{
+    $this->seed(SubscriptionPlanSeeder::class);
 
-        expect(SubscriptionPlan::count())
-            ->toBe(6);
+    expect(SubscriptionPlan::count())
+        ->toBe(7);
 
-        expect(
-            SubscriptionPlan::whereIn('slug', [
-                'low-monthly',
-                'low-yearly',
-                'medium-monthly',
-                'medium-yearly',
-                'large-monthly',
-                'large-yearly',
-            ])->count()
-        )->toBe(6);
-    }
+    expect(
+        SubscriptionPlan::whereIn('slug', [
+            'free',
+            'low-monthly',
+            'low-yearly',
+            'medium-monthly',
+            'medium-yearly',
+            'large-monthly',
+            'large-yearly',
+        ])->count()
+    )->toBe(7);
+}
 
     public function test_low_monthly_plan_has_expected_configuration(): void
     {
@@ -210,7 +211,7 @@ class SubscriptionPlanSeederTest extends TestCase
         $this->seed(SubscriptionPlanSeeder::class);
 
         expect(SubscriptionPlan::count())
-            ->toBe(6);
+            ->toBe(7);
 
         expect(
             SubscriptionPlan::whereIn('slug', [
@@ -230,7 +231,7 @@ class SubscriptionPlanSeederTest extends TestCase
 
         expect(
             SubscriptionPlan::where('is_active', true)->count()
-        )->toBe(6);
+        )->toBe(7);
     }
 
     public function test_each_tier_has_monthly_and_yearly_plans(): void

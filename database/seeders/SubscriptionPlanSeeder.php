@@ -11,6 +11,34 @@ class SubscriptionPlanSeeder extends Seeder
     {
         $plans = [
             [
+                'name' => 'Free',
+                'slug' => 'free',
+                'description' => 'A free MerchantOS plan for small businesses getting started.',
+                'price' => 0,
+                'currency' => 'NGN',
+                'billing_interval' => 'monthly',
+
+                'transaction_daily_limit' => 10,
+                'transaction_monthly_limit' => 30,
+
+                'customer_limit' => 10,
+                'user_limit' => 1,
+                'branch_limit' => 1,
+
+                'features' => [
+                    'pos' => true,
+                    'inventory' => true,
+                    'sales' => true,
+                    'customers' => true,
+                    'services' => true,
+                    'basic_reports' => true,
+                    'advanced_reports' => false,
+                ],
+
+                'paystack_plan_code' => null,
+                'is_active' => true,
+            ],
+            [
                 'name' => 'Low Monthly',
                 'slug' => 'low-monthly',
                 'description' => 'For small businesses getting started with MerchantOS.',
@@ -117,8 +145,8 @@ class SubscriptionPlanSeeder extends Seeder
                 'price' => 20000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
-                'transaction_daily_limit' => 500,
-                'transaction_monthly_limit' => 5000,
+                'transaction_daily_limit' => null,
+                'transaction_monthly_limit' => null,
                 'customer_limit' => 500,
                 'user_limit' => 50,
                 'branch_limit' => 10,
@@ -142,8 +170,8 @@ class SubscriptionPlanSeeder extends Seeder
                 'price' => 200000,
                 'currency' => 'NGN',
                 'billing_interval' => 'yearly',
-                'transaction_daily_limit' => 500,
-                'transaction_monthly_limit' => 5000,
+                'transaction_daily_limit' => null,
+                'transaction_monthly_limit' => null,
                 'customer_limit' => 500,
                 'user_limit' => 50,
                 'branch_limit' => 10,

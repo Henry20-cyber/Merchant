@@ -4,6 +4,7 @@ namespace Tests\Feature\Organization;
 
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessType;
+use Database\Seeders\SubscriptionPlanSeeder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -11,6 +12,13 @@ use Tests\TestCase;
 class BusinessRegistrationCapabilitiesApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->seed(SubscriptionPlanSeeder::class);
+    }
 
     private function validPayload(
         bool $productsEnabled,
@@ -139,10 +147,9 @@ class BusinessRegistrationCapabilitiesApiTest extends TestCase
             'capabilities',
         ]);
 
-        $this->assertDatabaseCount(
-            'businesses',
-            0
-        );
+        $this->assertDatabaseMissing('businesses', [
+            'name' => 'Henry Beauty Store',
+        ]);
     }
 
     public function test_products_enabled_must_be_boolean(): void

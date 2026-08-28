@@ -5,6 +5,8 @@ namespace App\Domains\Organization\Services;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessCapabilities;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use App\Models\User;
@@ -14,18 +16,20 @@ class BusinessService
     /**
      * Register a new business.
      */
-    public function registerBusiness(array $data): Business
-    {
-        return DB::transaction(function () use ($data) {
-            $business = $this->createBusiness($data);
+  public function registerBusiness(array $data): Business
+{
+    return DB::transaction(function () use ($data) {
+        $business = $this->createBusiness($data);
 
-            $this->createCapabilities($business, $data);
+        $this->createCapabilities($business, $data);
 
-            $this->createHeadOffice($business, $data);
+        $this->createHeadOffice($business, $data);
 
-            return $business;
-        });
-    }
+        $this->createFreeSubscription($business);
+
+        return $business;
+    });
+}
 
     /**
      * Create the business.
@@ -166,5 +170,37 @@ public function updateForUser(
     $business->update($data);
 
     return $business->refresh();
+}
+
+/**
+ * Create the default Free subscription for a new business.
+ */
+private function createFreeSubscription(
+    Business $business
+): Subscription {
+    $freePlan = SubscriptionPlan::query()
+        ->where('slug', 'free')
+        ->where('is_active', true)
+        ->first();
+
+    if (! $freePlan) {
+        throw new \RuntimeException(
+            'The MerchantOS Free subscription plan is not configured.'
+        );
+    }
+
+    $startsAt = now();
+
+    return Subscription::create([
+        'business_id' => $business->id,
+        'plan_id' => $freePlan->id,
+        'status' => 'active',
+        'starts_at' => $startsAt,
+        'current_period_start' => $startsAt->copy()->startOfMonth(),
+        'current_period_end' => $startsAt->copy()->addMonth()->startOfMonth(),
+        'grace_period_ends_at' => null,
+        'cancelled_at' => null,
+        'ended_at' => null,
+    ]);
 }
 }
