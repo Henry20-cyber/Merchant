@@ -31,20 +31,20 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/initialize' =>
-                Http::response([
-                    'status' => true,
-                    'message' => 'Authorization URL created',
-                    'data' => [
-                        'authorization_url' =>
-                            'https://checkout.paystack.com/test123',
+            Http::response([
+                'status' => true,
+                'message' => 'Authorization URL created',
+                'data' => [
+                    'authorization_url' =>
+                    'https://checkout.paystack.com/test123',
 
-                        'access_code' =>
-                            'test_access_code',
+                    'access_code' =>
+                    'test_access_code',
 
-                        'reference' =>
-                            'merchantos-test-reference',
-                    ],
-                ], 200),
+                    'reference' =>
+                    'merchantos-test-reference',
+                ],
+            ], 200),
         ]);
 
         $gateway = app(PaymentGateway::class);
@@ -54,7 +54,7 @@ class PaystackGatewayTest extends TestCase
             'amount' => 500000,
             'reference' => 'merchantos-test-reference',
             'callback_url' =>
-                'https://merchantos.test/payment/callback',
+            'https://merchantos.test/payment/callback',
             'metadata' => [
                 'business_id' => 'business-123',
                 'subscription_id' => 'subscription-123',
@@ -82,13 +82,13 @@ class PaystackGatewayTest extends TestCase
                 && $request->method() === 'POST'
 
                 && $request['email'] ===
-                    'customer@example.com'
+                'customer@example.com'
 
                 && $request['amount'] ===
-                    500000
+                500000
 
                 && $request['reference'] ===
-                    'merchantos-test-reference';
+                'merchantos-test-reference';
         });
     }
 
@@ -99,21 +99,31 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/verify/*' =>
-                Http::response([
-                    'status' => true,
-                    'message' => 'Verification successful',
+            Http::response([
+                'status' => true,
+                'message' => 'Verification successful',
 
-                    'data' => [
-                        'status' => 'success',
+                'data' => [
+                    'status' => 'success',
 
-                        'reference' =>
-                            'merchantos-test-reference',
+                    'reference' =>
+                    'merchantos-test-reference',
 
-                        'amount' => 500000,
+                    'amount' => 500000,
 
-                        'currency' => 'NGN',
+                    'currency' => 'NGN',
+
+                    'authorization' => [
+                        'authorization_code' =>
+                        'AUTH_test_123456',
                     ],
-                ], 200),
+
+                    'customer' => [
+                        'customer_code' =>
+                        'CUS_test_123456',
+                    ],
+                ],
+            ], 200),
         ]);
 
         $gateway = app(PaymentGateway::class);
@@ -137,6 +147,12 @@ class PaystackGatewayTest extends TestCase
         expect($result['currency'])
             ->toBe('NGN');
 
+        expect($result['authorization_code'])
+            ->toBe('AUTH_test_123456');
+
+        expect($result['customer_code'])
+            ->toBe('CUS_test_123456');
+
         Http::assertSent(function ($request) {
             return str_contains(
                 $request->url(),
@@ -152,15 +168,15 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/initialize' =>
-                Http::response([
-                    'status' => false,
-                    'message' => 'Invalid amount',
-                ], 200),
+            Http::response([
+                'status' => false,
+                'message' => 'Invalid amount',
+            ], 200),
         ]);
 
         $gateway = app(PaymentGateway::class);
 
-        expect(fn () => $gateway->initialize([
+        expect(fn() => $gateway->initialize([
             'email' => 'customer@example.com',
             'amount' => 500000,
             'reference' => 'merchantos-test-reference',
@@ -177,15 +193,15 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/verify/*' =>
-                Http::response([
-                    'status' => false,
-                    'message' => 'Transaction not found',
-                ], 200),
+            Http::response([
+                'status' => false,
+                'message' => 'Transaction not found',
+            ], 200),
         ]);
 
         $gateway = app(PaymentGateway::class);
 
-        expect(fn () => $gateway->verify(
+        expect(fn() => $gateway->verify(
             'invalid-reference'
         ))->toThrow(
             \RuntimeException::class,
@@ -201,14 +217,14 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/initialize' =>
-                Http::response([
-                    'message' => 'Server error',
-                ], 500),
+            Http::response([
+                'message' => 'Server error',
+            ], 500),
         ]);
 
         $gateway = app(PaymentGateway::class);
 
-        expect(fn () => $gateway->initialize([
+        expect(fn() => $gateway->initialize([
             'email' => 'customer@example.com',
             'amount' => 500000,
             'reference' => 'merchantos-test-reference',
@@ -225,14 +241,14 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/verify/*' =>
-                Http::response([
-                    'message' => 'Server error',
-                ], 500),
+            Http::response([
+                'message' => 'Server error',
+            ], 500),
         ]);
 
         $gateway = app(PaymentGateway::class);
 
-        expect(fn () => $gateway->verify(
+        expect(fn() => $gateway->verify(
             'merchantos-test-reference'
         ))->toThrow(
             \RuntimeException::class,
@@ -247,19 +263,19 @@ class PaystackGatewayTest extends TestCase
     {
         Http::fake([
             'https://api.paystack.co/transaction/initialize' =>
-                Http::response([
-                    'status' => true,
-                    'data' => [
-                        'authorization_url' =>
-                            'https://checkout.paystack.com/test',
+            Http::response([
+                'status' => true,
+                'data' => [
+                    'authorization_url' =>
+                    'https://checkout.paystack.com/test',
 
-                        'access_code' =>
-                            'test_access_code',
+                    'access_code' =>
+                    'test_access_code',
 
-                        'reference' =>
-                            'merchantos-test-reference',
-                    ],
-                ], 200),
+                    'reference' =>
+                    'merchantos-test-reference',
+                ],
+            ], 200),
         ]);
 
         $gateway = app(PaymentGateway::class);
@@ -281,4 +297,147 @@ class PaystackGatewayTest extends TestCase
             return $request['metadata'] === $metadata;
         });
     }
+
+    /**
+     * Paystack recurring subscription can be created.
+     */
+    public function test_paystack_subscription_can_be_created(): void
+    {
+        Http::fake([
+            'https://api.paystack.co/subscription' =>
+            Http::response([
+                'status' => true,
+                'message' => 'Subscription successfully created',
+                'data' => [
+                    'subscription_code' => 'SUB_test_123',
+                    'email_token' => 'EMAIL_TOKEN_test_123',
+                    'customer' => [
+                        'customer_code' => 'CUS_test_123',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $gateway = app(PaymentGateway::class);
+
+        $result = $gateway->createSubscription([
+            'customer_code' => 'CUS_test_123',
+            'plan_code' => 'PLN_test_123',
+            'authorization_code' => 'AUTH_test_123',
+        ]);
+
+        expect($result['success'])
+            ->toBeTrue();
+
+        expect($result['subscription_code'])
+            ->toBe('SUB_test_123');
+
+        expect($result['customer_code'])
+            ->toBe('CUS_test_123');
+
+        expect($result['email_token'])
+            ->toBe('EMAIL_TOKEN_test_123');
+
+        Http::assertSent(function ($request) {
+            return $request->url() ===
+                'https://api.paystack.co/subscription'
+
+                && $request->method() === 'POST'
+
+                && $request['customer'] ===
+                'CUS_test_123'
+
+                && $request['plan'] ===
+                'PLN_test_123'
+
+                && $request['authorization'] ===
+                'AUTH_test_123';
+        });
+    }
+
+    /**
+ * Paystack recurring subscription can be disabled.
+ */
+public function test_paystack_subscription_can_be_disabled(): void
+{
+    Http::fake([
+        'https://api.paystack.co/subscription/disable' =>
+            Http::response([
+                'status' => true,
+                'message' => 'Subscription disabled successfully',
+            ], 200),
+    ]);
+
+    $gateway = app(PaymentGateway::class);
+
+    $result = $gateway->disableSubscription(
+        'SUB_test_123',
+        'EMAIL_TOKEN_test_123'
+    );
+
+    expect($result['success'])
+        ->toBeTrue();
+
+    Http::assertSent(function ($request) {
+        return $request->url() ===
+            'https://api.paystack.co/subscription/disable'
+
+            && $request->method() === 'POST'
+
+            && $request['code'] ===
+                'SUB_test_123'
+
+            && $request['token'] ===
+                'EMAIL_TOKEN_test_123';
+    });
+}
+
+/**
+ * Failed Paystack subscription creation is rejected.
+ */
+public function test_failed_subscription_creation_throws_exception(): void
+{
+    Http::fake([
+        'https://api.paystack.co/subscription' =>
+            Http::response([
+                'status' => false,
+                'message' => 'Invalid plan',
+            ], 200),
+    ]);
+
+    $gateway = app(PaymentGateway::class);
+
+    expect(fn () => $gateway->createSubscription([
+        'customer_code' => 'CUS_test_123',
+        'plan_code' => 'PLN_invalid',
+        'authorization_code' => 'AUTH_test_123',
+    ]))->toThrow(
+        \RuntimeException::class,
+        'Invalid plan'
+    );
+}
+
+/**
+ * Failed Paystack subscription disabling is rejected.
+ */
+public function test_failed_subscription_disabling_throws_exception(): void
+{
+    Http::fake([
+        'https://api.paystack.co/subscription/disable' =>
+            Http::response([
+                'status' => false,
+                'message' => 'Invalid token',
+            ], 200),
+    ]);
+
+    $gateway = app(PaymentGateway::class);
+
+    expect(fn () => $gateway->disableSubscription(
+        'SUB_test_123',
+        'INVALID_TOKEN'
+    ))->toThrow(
+        \RuntimeException::class,
+        'Invalid token'
+    );
+}
 }

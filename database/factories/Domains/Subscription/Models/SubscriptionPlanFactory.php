@@ -33,6 +33,7 @@ class SubscriptionPlanFactory extends Factory
                 'services' => true,
                 'basic_reports' => true,
                 'advanced_reports' => true,
+                'receipts' => true,
             ],
             'paystack_plan_code' => null,
 

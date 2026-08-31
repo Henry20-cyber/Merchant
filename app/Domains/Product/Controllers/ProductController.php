@@ -2,38 +2,21 @@
 
 namespace App\Domains\Product\Controllers;
 
-use App\Domains\Organization\Services\BusinessContextService;
+use App\Http\Controllers\Controller;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Product\Services\ProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class ProductController
+class ProductController extends Controller
 {
     public function __construct(
-        private ProductService $productService,
-        private BusinessContextService $businessContext
+        private ProductService $productService
     ) {
     }
 
-    /**
-     * Get the authenticated user's current business.
-     */
-    private function currentBusiness(Request $request)
-    {
-        $business = $this->businessContext->current(
-            $request->user()
-        );
 
-        abort_if(
-            ! $business,
-            403,
-            'No business context selected.'
-        );
-
-        return $business;
-    }
 
     /**
      * Ensure the product belongs to the current business.

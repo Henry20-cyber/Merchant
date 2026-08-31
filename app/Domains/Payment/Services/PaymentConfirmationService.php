@@ -12,151 +12,164 @@ use Illuminate\Validation\ValidationException;
 class PaymentConfirmationService
 {
     public function __construct(
-        private PaymentGateway $paymentGateway,
+        private PaymentGateway $paymentGateway
     ) {
     }
 
     /**
-     * Confirm a Paystack payment and fulfil it.
+     * Confirm a payment using the payment provider.
      *
-     * This method is idempotent:
-     * processing the same successful payment twice
-     * must not create duplicate business value.
+     * The operation is idempotent:
+     * an already-paid payment is never fulfilled twice.
      */
     public function confirm(string $reference): Payment
     {
-        /*
-         * Find the MerchantOS payment first.
-         */
-        $payment = Payment::query()
-            ->where('reference', $reference)
-            ->first();
-
-        if (! $payment) {
-            throw ValidationException::withMessages([
-                'reference' => 'Payment reference was not found.',
-            ]);
-        }
-
-        /*
-         * Idempotency.
-         *
-         * If MerchantOS already processed this payment,
-         * there is nothing else to fulfil.
-         */
-        if ($payment->status === 'paid') {
-            return $payment;
-        }
-
-        /*
-         * Ask Paystack for the authoritative transaction state.
-         *
-         * Never trust the webhook payload alone for payment value.
-         */
-        $verified = $this->paymentGateway->verify(
-            $reference
-        );
-
-        /*
-         * Paystack transaction must actually be successful.
-         */
-        if (
-            ! $verified['success'] ||
-            $verified['status'] !== 'success'
-        ) {
-            $this->markFailedIfAppropriate($payment);
-
-            throw ValidationException::withMessages([
-                'payment' => 'The Paystack transaction was not successful.',
-            ]);
-        }
-
-        /*
-         * Verify the reference returned by Paystack.
-         */
-        if (
-            $verified['reference'] !== null &&
-            $verified['reference'] !== $payment->reference
-        ) {
-            throw ValidationException::withMessages([
-                'payment' => 'Payment reference verification failed.',
-            ]);
-        }
-
-        /*
-         * Verify the amount.
-         *
-         * MerchantOS stores NGN as decimal naira.
-         * Paystack returns the amount in kobo.
-         */
-        $expectedAmount = $this->toMinorUnits(
-            (string) $payment->amount
-        );
-
-        if (
-            $verified['amount'] === null ||
-            $verified['amount'] !== $expectedAmount
-        ) {
-            throw ValidationException::withMessages([
-                'payment' => 'Payment amount verification failed.',
-            ]);
-        }
-
-        /*
-         * Verify currency.
-         */
-        if (
-            $verified['currency'] !== null &&
-            strtoupper($verified['currency']) !== 'NGN'
-        ) {
-            throw ValidationException::withMessages([
-                'payment' => 'Payment currency verification failed.',
-            ]);
-        }
-
-        /*
-         * Fulfil the payment atomically.
-         */
-        return DB::transaction(function () use ($payment) {
+        return DB::transaction(function () use ($reference) {
             /*
-             * Lock this payment row.
-             *
-             * This protects us if Paystack sends the same
-             * webhook more than once concurrently.
+             * Lock the payment so two simultaneous requests
+             * cannot fulfil the same payment concurrently.
              */
-            $lockedPayment = Payment::query()
-                ->whereKey($payment->id)
+            $payment = Payment::query()
+                ->where('reference', $reference)
                 ->lockForUpdate()
-                ->firstOrFail();
+                ->first();
 
-            /*
-             * Another webhook may have completed it while
-             * this request was verifying with Paystack.
-             */
-            if ($lockedPayment->status === 'paid') {
-                return $lockedPayment->refresh();
+            if (! $payment) {
+                throw ValidationException::withMessages([
+                    'reference' => 'Payment not found.',
+                ]);
             }
 
-            $lockedPayment->forceFill([
+            /*
+             * Idempotency.
+             *
+             * If this payment was already successfully processed,
+             * simply return it.
+             */
+            if ($payment->status === 'paid') {
+                return $payment->refresh();
+            }
+
+            /*
+             * Only pending payments may be confirmed.
+             */
+            if ($payment->status !== 'pending') {
+                throw ValidationException::withMessages([
+                    'payment' => 'Only pending payments can be confirmed.',
+                ]);
+            }
+
+            /*
+             * Ask Paystack for the authoritative transaction state.
+             */
+            $verified = $this->paymentGateway->verify(
+                $payment->reference
+            );
+
+            /*
+             * A provider-reported failed transaction is an expected
+             * payment outcome, not an application exception.
+             *
+             * Persist the failed state and commit the transaction.
+             */
+            if (
+                ! ($verified['success'] ?? false) ||
+                ($verified['status'] ?? null) !== 'success'
+            ) {
+                $payment->forceFill([
+                    'status' => 'failed',
+                ])->save();
+
+                return $payment->refresh();
+            }
+
+            /*
+             * The verified reference must match our local payment.
+             */
+            if (
+                ($verified['reference'] ?? null) !==
+                $payment->reference
+            ) {
+                throw ValidationException::withMessages([
+                    'reference' => 'Payment reference mismatch.',
+                ]);
+            }
+
+            /*
+             * MerchantOS stores amounts in major currency units.
+             * Paystack returns amounts in minor units.
+             */
+            $expectedAmount = $this->toMinorUnits(
+                (string) $payment->amount
+            );
+
+            if (
+                ($verified['amount'] ?? null) !==
+                $expectedAmount
+            ) {
+                throw ValidationException::withMessages([
+                    'amount' => 'Payment amount does not match.',
+                ]);
+            }
+
+            /*
+             * Subscription currency is checked against the plan
+             * during subscription fulfilment.
+             *
+             * For non-subscription payments, use payment metadata
+             * when available.
+             */
+            if (
+                ($payment->metadata['type'] ?? null) !==
+                'subscription'
+            ) {
+                $expectedCurrency = strtoupper(
+                    (string) (
+                        $payment->metadata['currency']
+                        ?? 'NGN'
+                    )
+                );
+
+                $verifiedCurrency = strtoupper(
+                    (string) (
+                        $verified['currency']
+                        ?? ''
+                    )
+                );
+
+                if (
+                    $verifiedCurrency !== '' &&
+                    $verifiedCurrency !== $expectedCurrency
+                ) {
+                    throw ValidationException::withMessages([
+                        'currency' => 'Payment currency does not match.',
+                    ]);
+                }
+            }
+
+            /*
+             * Mark payment as paid.
+             */
+            $payment->forceFill([
                 'status' => 'paid',
                 'paid_at' => now(),
             ])->save();
 
             /*
-             * Subscription payments require additional fulfilment.
+             * Subscription payments require recurring-billing
+             * fulfilment.
              */
             if (
-                data_get(
-                    $lockedPayment->metadata,
-                    'type'
-                ) === 'subscription'
+                ($payment->metadata['type'] ?? null) ===
+                'subscription'
             ) {
                 $this->fulfilSubscriptionPayment(
-                    $lockedPayment
+                    $payment,
+                    $verified
                 );
             }
 
-            return $lockedPayment->refresh();
+            return $payment->refresh();
         });
     }
 
@@ -164,7 +177,8 @@ class PaymentConfirmationService
      * Fulfil a successful subscription payment.
      */
     private function fulfilSubscriptionPayment(
-        Payment $payment
+        Payment $payment,
+        array $verified
     ): void {
         $metadata = $payment->metadata ?? [];
 
@@ -178,7 +192,7 @@ class PaymentConfirmationService
         }
 
         /*
-         * The plan must still exist and remain active.
+         * Load the authoritative subscription plan.
          */
         $plan = SubscriptionPlan::query()
             ->whereKey($planId)
@@ -192,15 +206,70 @@ class PaymentConfirmationService
         }
 
         /*
-         * Lock the existing subscription if one exists.
+         * The verified Paystack currency must match
+         * the MerchantOS plan currency.
+         */
+        $verifiedCurrency = strtoupper(
+            (string) ($verified['currency'] ?? '')
+        );
+
+        $planCurrency = strtoupper(
+            (string) $plan->currency
+        );
+
+        if ($verifiedCurrency !== $planCurrency) {
+            throw ValidationException::withMessages([
+                'currency' => 'Payment currency does not match the subscription plan.',
+            ]);
+        }
+
+        /*
+         * A recurring subscription requires a provider plan code.
+         */
+        if (! $plan->paystack_plan_code) {
+            throw ValidationException::withMessages([
+                'plan' => 'The subscription plan is not configured for recurring billing.',
+            ]);
+        }
+
+        /*
+         * Paystack must provide the authorization information
+         * necessary for future automatic charges.
+         */
+        $customerCode = $verified['customer_code'] ?? null;
+        $authorizationCode = $verified['authorization_code'] ?? null;
+
+        if (! $customerCode || ! $authorizationCode) {
+            throw ValidationException::withMessages([
+                'payment' => 'Paystack authorization information is incomplete.',
+            ]);
+        }
+
+        /*
+         * Lock the existing subscription.
          *
-         * This is important for trial → paid transitions
-         * and future renewals.
+         * This is particularly important for trial -> paid
+         * transitions and concurrent callbacks.
          */
         $subscription = Subscription::query()
             ->where('business_id', $businessId)
             ->lockForUpdate()
             ->first();
+
+        /*
+         * If recurring billing has already been established,
+         * do not create another provider subscription.
+         */
+        if (
+            $subscription &&
+            $subscription->provider_subscription_code
+        ) {
+            $payment->forceFill([
+                'subscription_id' => $subscription->id,
+            ])->save();
+
+            return;
+        }
 
         $now = now();
 
@@ -208,33 +277,50 @@ class PaymentConfirmationService
             ? $now->copy()->addYear()
             : $now->copy()->addMonth();
 
+        /*
+         * Create the MerchantOS subscription if the business
+         * does not have one yet.
+         */
         if (! $subscription) {
-            /*
-             * Brand-new business:
-             *
-             * Payment succeeds first.
-             * Subscription is created only now.
-             */
             $subscription = Subscription::create([
                 'business_id' => $businessId,
                 'plan_id' => $plan->id,
                 'status' => 'active',
                 'provider' => 'paystack',
+
+                'provider_customer_code' =>
+                    $customerCode,
+
+                'provider_authorization_code' =>
+                    $authorizationCode,
+
                 'starts_at' => $now,
                 'current_period_start' => $now,
                 'current_period_end' => $periodEnd,
             ]);
         } else {
             /*
-             * Existing trial/past-due/grace subscription:
-             * turn it into an active paid subscription.
+             * Existing trial/past_due/grace subscription.
+             *
+             * Convert it into the newly purchased plan.
              */
             $subscription->forceFill([
                 'plan_id' => $plan->id,
                 'status' => 'active',
                 'provider' => 'paystack',
+
+                'provider_customer_code' =>
+                    $customerCode,
+
+                'provider_authorization_code' =>
+                    $authorizationCode,
+
+                'starts_at' =>
+                    $subscription->starts_at ?? $now,
+
                 'current_period_start' => $now,
                 'current_period_end' => $periodEnd,
+
                 'grace_period_ends_at' => null,
                 'cancelled_at' => null,
                 'ended_at' => null,
@@ -244,47 +330,83 @@ class PaymentConfirmationService
         }
 
         /*
-         * Link the payment to the subscription that was
-         * actually fulfilled.
+         * Establish recurring billing with Paystack.
+         */
+        $providerSubscription =
+            $this->paymentGateway->createSubscription([
+                'customer_code' => $customerCode,
+                'plan_code' => $plan->paystack_plan_code,
+                'authorization_code' => $authorizationCode,
+            ]);
+
+        /*
+         * Paystack must return a provider subscription code.
+         */
+        if (
+            ! ($providerSubscription['success'] ?? false) ||
+            empty($providerSubscription['subscription_code'])
+        ) {
+            throw ValidationException::withMessages([
+                'payment' => 'Unable to create the recurring subscription.',
+            ]);
+        }
+
+        /*
+         * Persist all provider identifiers required for
+         * future billing management.
+         */
+        $subscription->forceFill([
+            'provider_customer_code' =>
+                $providerSubscription['customer_code']
+                ?? $customerCode,
+
+            'provider_authorization_code' =>
+                $authorizationCode,
+
+            'provider_subscription_code' =>
+                $providerSubscription['subscription_code'],
+
+            'provider_email_token' =>
+                $providerSubscription['email_token']
+                ?? null,
+        ])->save();
+
+        /*
+         * Associate the successful payment with its subscription.
          */
         $payment->forceFill([
             'subscription_id' => $subscription->id,
         ])->save();
     }
 
-    private function markFailedIfAppropriate(
-        Payment $payment
-    ): void {
-        /*
-         * Only pending payments are transitioned to failed.
-         *
-         * We don't overwrite historical paid/refunded/etc.
-         * states.
-         */
-        if ($payment->status === 'pending') {
-            $payment->forceFill([
-                'status' => 'failed',
-            ])->save();
-        }
-    }
-
     /**
-     * Convert naira to kobo without floating point arithmetic.
+     * Convert a major-unit amount into minor units.
+     *
+     * Example:
+     * 10,000.00 NGN -> 1,000,000 kobo.
      */
     private function toMinorUnits(string $amount): int
     {
-        $parts = explode('.', $amount, 2);
-
-        $naira = $parts[0] ?? '0';
-
-        $kobo = str_pad(
-            $parts[1] ?? '0',
+        $normalized = number_format(
+            (float) $amount,
             2,
-            '0'
+            '.',
+            ''
         );
 
-        $kobo = substr($kobo, 0, 2);
+        [$whole, $decimal] = array_pad(
+            explode('.', $normalized, 2),
+            2,
+            '00'
+        );
 
-        return ((int) $naira * 100) + (int) $kobo;
+        return (
+            ((int) $whole * 100)
+            + (int) str_pad(
+                substr($decimal, 0, 2),
+                2,
+                '0'
+            )
+        );
     }
 }

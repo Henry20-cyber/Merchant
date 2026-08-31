@@ -34,9 +34,42 @@ interface PaymentGateway
      *     reference: string|null,
      *     amount: int|null,
      *     currency: string|null,
+     *     authorization_code: string|null,
+     *     customer_code: string|null,
      *     raw: array
      * }
      */
     public function verify(string $reference): array;
-}
 
+    /**
+     * Create a recurring subscription with the payment provider.
+     *
+     * @param array{
+     *     customer_code: string,
+     *     plan_code: string,
+     *     authorization_code?: string|null
+     * } $data
+     *
+     * @return array{
+     *     success: bool,
+     *     subscription_code: string|null,
+     *     customer_code: string|null,
+     *     email_token: string|null,
+     *     raw: array
+     * }
+     */
+    public function createSubscription(array $data): array;
+
+    /**
+     * Disable a recurring subscription.
+     *
+     * @return array{
+     *     success: bool,
+     *     raw: array
+     * }
+     */
+    public function disableSubscription(
+        string $subscriptionCode,
+        string $emailToken
+    ): array;
+}

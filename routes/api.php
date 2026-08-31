@@ -8,6 +8,7 @@ use App\Domains\Organization\Controllers\BusinessContextController;
 use App\Domains\Organization\Controllers\BusinessController;
 use App\Domains\Organization\Controllers\BusinessMemberController;
 use App\Domains\Subscription\Controllers\SubscriptionController;
+use App\Domains\Receipt\Controllers\ReceiptController;
 use App\Domains\Customer\Controllers\CustomerController;
 use App\Domains\Sales\Http\Controllers\SaleController;
 use App\Domains\Payment\Controllers\PaystackWebhookController;
@@ -449,6 +450,108 @@ Route::middleware([
     ])->middleware('permission:sales.create');
 });
 
+
+/*
+|--------------------------------------------------------------------------
+| Receipts
+|--------------------------------------------------------------------------
+|
+| Receipt access is business-scoped.
+|
+| Requirements:
+|
+| - authenticated user
+| - active business context
+| - appropriate receipt permission
+|
+*/
+
+Route::middleware([
+    'auth:sanctum',
+    'business.context',
+])->group(function () {
+
+    /*
+    |--------------------------------------------------------------------------
+    | Receipt Listing
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        '/businesses/current/receipts',
+        [
+            ReceiptController::class,
+            'index',
+        ]
+    )->middleware('permission:receipts.view');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | View Receipt
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get(
+        '/businesses/current/receipts/{receipt}',
+        [
+            ReceiptController::class,
+            'show',
+        ]
+    )->middleware('permission:receipts.view');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Printable Receipt
+    |--------------------------------------------------------------------------
+    |
+    | Returns printer-friendly HTML.
+    |
+    | Supported formats:
+    |
+    | - 58mm
+    | - 80mm
+    | - a4
+    |
+    */
+
+    Route::get(
+        '/businesses/current/receipts/{receipt}/print',
+        [
+            ReceiptController::class,
+            'print',
+        ]
+    )->middleware('permission:receipts.print');
+
+
+    /*
+    |--------------------------------------------------------------------------
+    | Receipt PDF
+    |--------------------------------------------------------------------------
+    |
+    | Returns a PDF representation of the receipt.
+    |
+    | Supported formats:
+    |
+    | - 58mm
+    | - 80mm
+    | - a4
+    |
+    | PDF generation requires the same authentication,
+    | business context, tenant isolation, and print
+    | permission as the HTML print endpoint.
+    |
+    */
+
+    Route::get(
+        '/businesses/current/receipts/{receipt}/pdf',
+        [
+            ReceiptController::class,
+            'pdf',
+        ]
+    )->middleware('permission:receipts.print');
+});
 
 /*
 |--------------------------------------------------------------------------

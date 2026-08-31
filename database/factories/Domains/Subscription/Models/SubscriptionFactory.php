@@ -22,6 +22,7 @@ class SubscriptionFactory extends Factory
             'status' => 'trial',
             'provider' => null,
             'provider_customer_code' => null,
+            'provider_authorization_code' => null,
             'provider_subscription_code' => null,
             'starts_at' => now(),
             'current_period_start' => now(),

@@ -50,10 +50,10 @@ class PaystackGateway implements PaymentGateway
                         'reference' => $data['reference'],
 
                         'callback_url' =>
-                            $data['callback_url'] ?? null,
+                        $data['callback_url'] ?? null,
 
                         'metadata' =>
-                            $data['metadata'] ?? null,
+                        $data['metadata'] ?? null,
                     ]
                 )
                 ->throw();
@@ -79,13 +79,13 @@ class PaystackGateway implements PaymentGateway
             'success' => true,
 
             'authorization_url' =>
-                $data['authorization_url'] ?? null,
+            $data['authorization_url'] ?? null,
 
             'access_code' =>
-                $data['access_code'] ?? null,
+            $data['access_code'] ?? null,
 
             'reference' =>
-                $data['reference'] ?? null,
+            $data['reference'] ?? null,
 
             'raw' => $payload,
         ];
@@ -101,8 +101,8 @@ class PaystackGateway implements PaymentGateway
                 ->acceptJson()
                 ->get(
                     $this->baseUrl .
-                    '/transaction/verify/' .
-                    urlencode($reference)
+                        '/transaction/verify/' .
+                        urlencode($reference)
                 )
                 ->throw();
         } catch (RequestException $exception) {
@@ -127,20 +127,144 @@ class PaystackGateway implements PaymentGateway
             'success' => true,
 
             'status' =>
-                $data['status'] ?? null,
+            $data['status'] ?? null,
 
             'reference' =>
-                $data['reference'] ?? null,
+            $data['reference'] ?? null,
 
             'amount' =>
-                isset($data['amount'])
-                    ? (int) $data['amount']
-                    : null,
+            isset($data['amount'])
+                ? (int) $data['amount']
+                : null,
 
             'currency' =>
-                $data['currency'] ?? null,
+            $data['currency'] ?? null,
+
+            'authorization_code' =>
+            data_get(
+                $data,
+                'authorization.authorization_code'
+            ),
+
+            'customer_code' =>
+            data_get(
+                $data,
+                'customer.customer_code'
+            ),
 
             'raw' => $payload,
         ];
     }
+
+    /**
+     * Create a recurring subscription with Paystack.
+     */
+    public function createSubscription(array $data): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->acceptJson()
+                ->post(
+                    $this->baseUrl . '/subscription',
+                    [
+                        'customer' =>
+                        $data['customer_code'],
+
+                        'plan' =>
+                        $data['plan_code'],
+
+                        'authorization' =>
+                        $data['authorization_code'] ?? null,
+                    ]
+                )
+                ->throw();
+        } catch (RequestException $exception) {
+            throw new RuntimeException(
+                'Unable to create Paystack subscription.',
+                previous: $exception
+            );
+        }
+
+        $payload = $response->json();
+
+        if (! ($payload['status'] ?? false)) {
+            throw new RuntimeException(
+                $payload['message']
+                    ?? 'Paystack subscription creation failed.'
+            );
+        }
+
+        $subscription = $payload['data'] ?? [];
+
+        return [
+            'success' => true,
+
+            'subscription_code' =>
+            $subscription['subscription_code']
+                ?? null,
+
+            'customer_code' =>
+            $subscription['customer']['customer_code']
+                ?? $data['customer_code']
+                ?? null,
+
+            'email_token' =>
+            $subscription['email_token']
+                ?? null,
+
+            'raw' => $payload,
+        ];
+    }
+
+    /**
+     * Disable a recurring subscription with Paystack.
+     */
+   /**
+ * Disable a recurring subscription.
+ *
+ * Paystack requires both the subscription code
+ * and email token to disable a subscription.
+ *
+ * @return array{
+ *     success: bool,
+ *     raw: array
+ * }
+ */
+
+public function disableSubscription(
+    string $subscriptionCode,
+    string $emailToken
+): array {
+    try {
+        $response = Http::withToken($this->secretKey)
+            ->acceptJson()
+            ->post(
+                $this->baseUrl . '/subscription/disable',
+                [
+                    'code' => $subscriptionCode,
+                    'token' => $emailToken,
+                ]
+            )
+            ->throw();
+    } catch (RequestException $exception) {
+        throw new RuntimeException(
+            'Unable to disable Paystack subscription.',
+            previous: $exception
+        );
+    }
+
+    $payload = $response->json();
+
+    if (! ($payload['status'] ?? false)) {
+        throw new RuntimeException(
+            $payload['message']
+                ?? 'Paystack subscription disabling failed.'
+        );
+    }
+
+    return [
+        'success' => true,
+        'raw' => $payload,
+    ];
+}
 }

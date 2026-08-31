@@ -11,25 +11,25 @@ class SubscriptionPlanSeederTest extends TestCase
 {
     use RefreshDatabase;
 
-  public function test_subscription_plans_are_seeded(): void
-{
-    $this->seed(SubscriptionPlanSeeder::class);
+    public function test_subscription_plans_are_seeded(): void
+    {
+        $this->seed(SubscriptionPlanSeeder::class);
 
-    expect(SubscriptionPlan::count())
-        ->toBe(7);
+        expect(SubscriptionPlan::count())
+            ->toBe(7);
 
-    expect(
-        SubscriptionPlan::whereIn('slug', [
-            'free',
-            'low-monthly',
-            'low-yearly',
-            'medium-monthly',
-            'medium-yearly',
-            'large-monthly',
-            'large-yearly',
-        ])->count()
-    )->toBe(7);
-}
+        expect(
+            SubscriptionPlan::whereIn('slug', [
+                'free',
+                'low-monthly',
+                'low-yearly',
+                'medium-monthly',
+                'medium-yearly',
+                'large-monthly',
+                'large-yearly',
+            ])->count()
+        )->toBe(7);
+    }
 
     public function test_low_monthly_plan_has_expected_configuration(): void
     {
@@ -238,11 +238,13 @@ class SubscriptionPlanSeederTest extends TestCase
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        foreach ([
-            'low',
-            'medium',
-            'large',
-        ] as $tier) {
+        foreach (
+            [
+                'low',
+                'medium',
+                'large',
+            ] as $tier
+        ) {
             expect(
                 SubscriptionPlan::where(
                     'slug',
@@ -256,6 +258,36 @@ class SubscriptionPlanSeederTest extends TestCase
                     $tier . '-yearly'
                 )->exists()
             )->toBeTrue();
+        }
+    }
+
+    public function test_receipt_entitlement_matches_plan_tier(): void
+    {
+        $this->seed(
+            SubscriptionPlanSeeder::class
+        );
+
+        $expected = [
+            'free' => false,
+
+            'low-monthly' => false,
+            'low-yearly' => false,
+
+            'medium-monthly' => true,
+            'medium-yearly' => true,
+
+            'large-monthly' => true,
+            'large-yearly' => true,
+        ];
+
+        foreach ($expected as $slug => $receiptsEnabled) {
+            $plan = SubscriptionPlan::query()
+                ->where('slug', $slug)
+                ->firstOrFail();
+
+            expect(
+                $plan->features['receipts'] ?? false
+            )->toBe($receiptsEnabled);
         }
     }
 }

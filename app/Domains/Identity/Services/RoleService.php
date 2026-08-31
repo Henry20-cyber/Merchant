@@ -64,9 +64,17 @@ class RoleService
                 'sales.update',
                 'sales.cancel',
 
+                 /**
+                 * Receipts
+                 * */
+
+                'receipts.view',
+                'receipts.create',
+                'receipts.print',
+
                 /*
-     * Inventory
-     */
+                 * Inventory
+                 */
                 'inventory.view',
                 'inventory.receive',
                 'inventory.adjust',
@@ -110,6 +118,15 @@ class RoleService
                 'sales.view',
                 'sales.create',
 
+
+                /**
+                 * Receipts
+                 * */
+
+                'receipts.view',
+                'receipts.create',
+                'receipts.print',
+
                 /*
                  * Inventory
                  */
@@ -117,6 +134,7 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
+
 
             ],
 
@@ -142,6 +160,15 @@ class RoleService
                  */
                 'sales.view',
                 'sales.create',
+
+
+                /**
+                 * Receipts
+                 * */
+
+                'receipts.view',
+                'receipts.create',
+                'receipts.print',
 
                 /*
                  * Cashiers can view inventory,

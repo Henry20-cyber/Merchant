@@ -5,38 +5,25 @@ namespace App\Domains\Customer\Controllers;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Customer\Resources\CustomerResource;
 use App\Domains\Customer\Services\CustomerService;
-use App\Domains\Organization\Services\BusinessContextService;
+use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
-class CustomerController
+class CustomerController extends Controller
 {
     public function __construct(
-        private CustomerService $customerService,
-        private BusinessContextService $businessContext
+        private CustomerService $customerService
     ) {
     }
 
     /**
-     * Get the authenticated user's current business.
-     */
-    private function currentBusiness(Request $request)
-    {
-        $business = $this->businessContext->current(
-            $request->user()
-        );
-
-        abort_if(
-            ! $business,
-            403,
-            'No business context selected.'
-        );
-
-        return $business;
-    }
-
-    /**
      * Ensure the customer belongs to the current business.
+     *
+     * This is a second layer of tenant isolation.
+     *
+     * The route middleware establishes the current business,
+     * while this check ensures a customer from another business
+     * cannot be accessed by manipulating the customer UUID.
      */
     private function ensureCustomerBelongsToBusiness(
         Customer $customer,

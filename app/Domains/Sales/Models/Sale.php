@@ -11,12 +11,20 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Domains\Receipt\Models\Receipt;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Database\Factories\SaleFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Sale extends Model
 {
   use HasUuids;
   use HasFactory;
+
+  protected static function newFactory()
+{
+    return SaleFactory::new();
+}
 
   protected $table = 'sales';
 
@@ -77,6 +85,16 @@ public function payments(): HasMany
 {
     return $this->hasMany(
         Payment::class
+    );
+}
+
+/**
+ * Official receipt issued for this sale.
+ */
+public function receipt(): HasOne
+{
+    return $this->hasOne(
+        Receipt::class
     );
 }
 

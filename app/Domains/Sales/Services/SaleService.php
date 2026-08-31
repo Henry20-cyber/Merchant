@@ -9,6 +9,7 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Subscription\Services\UsageService;
+use App\Domains\Payment\Services\PaymentService;
 use App\Domains\Service\Models\Service;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
@@ -20,11 +21,15 @@ class SaleService
 {
 
     private UsageService $usageService;
+    private PaymentService $paymentService;
 
     public function __construct(
-        UsageService $usageService
+        UsageService $usageService,
+        PaymentService $paymentService
+
     ) {
         $this->usageService = $usageService;
+        $this->paymentService = $paymentService;
     }
     /**
      * Create a completed sale and process all items atomically.
@@ -61,7 +66,7 @@ class SaleService
             $saleData
         ): Sale {
             $this->usageService->consumeTransaction($business);
-            
+
             $preparedItems = [];
             $subtotal = 0.0;
 
@@ -169,6 +174,34 @@ class SaleService
                     $sale,
                     $cashier,
                     $prepared
+                );
+            }
+
+            /*
+|--------------------------------------------------------------------------
+| Payment
+|--------------------------------------------------------------------------
+|
+| A completed paid sale must have a corresponding payment record.
+|
+| PaymentService owns payment validation and overpayment protection.
+| Because this code is already inside the surrounding database
+| transaction, payment creation is atomic with the sale and inventory.
+|
+*/
+
+            if (
+                $sale->status === 'completed' &&
+                $sale->payment_status === 'paid'
+            ) {
+                $this->paymentService->create(
+                    $business,
+                    $sale,
+                    [
+                        'amount' => $sale->total,
+                        'method' => $sale->payment_method,
+                        'status' => 'paid',
+                    ]
                 );
             }
 
