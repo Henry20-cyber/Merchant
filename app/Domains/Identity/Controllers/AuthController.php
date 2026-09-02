@@ -13,12 +13,11 @@ use App\Domains\Organization\Services\BusinessContextService;
 
 class AuthController extends Controller
 {
-   public function __construct(
-    private RegistrationService $registrationService,
-    private AuthenticationService $authenticationService,
-    private BusinessContextService $businessContext,
-    ) {
-}
+    public function __construct(
+        private RegistrationService $registrationService,
+        private AuthenticationService $authenticationService,
+        private BusinessContextService $businessContext,
+    ) {}
 
     /**
      * Register a new MerchantOS owner and business.
@@ -41,6 +40,7 @@ class AuthController extends Controller
 
                 'business' => [
                     'id' => $result['business']->id,
+                    'merchant_id' => $result['business']->merchant_id,
                     'name' => $result['business']->name,
                     'slug' => $result['business']->slug,
                     'status' => $result['business']->status,
@@ -54,10 +54,10 @@ class AuthController extends Controller
         ], 201);
     }
 
-  public function login(LoginRequest $request): JsonResponse
+    public function login(LoginRequest $request): JsonResponse
 {
     $user = $this->authenticationService->attempt(
-        $request->validated('email'),
+        $request->validated('identifier'),
         $request->validated('password')
     );
 
@@ -109,6 +109,7 @@ class AuthController extends Controller
 
             'business' => $currentBusiness ? [
                 'id' => $currentBusiness->id,
+                'merchant_id' => $currentBusiness->merchant_id,
                 'name' => $currentBusiness->name,
                 'slug' => $currentBusiness->slug,
             ] : null,
@@ -116,6 +117,21 @@ class AuthController extends Controller
             'requires_business_selection' =>
                 $businesses->count() > 1,
         ],
+    ]);
+}
+
+public function logout(): JsonResponse
+{
+    $this->authenticationService->logout();
+
+    $this->businessContext->clear();
+
+    request()->session()->invalidate();
+    request()->session()->regenerateToken();
+
+    return response()->json([
+        'success' => true,
+        'message' => 'Logout successful.',
     ]);
 }
 }
