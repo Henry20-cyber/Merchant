@@ -87,7 +87,6 @@ Route::middleware([
     'auth:sanctum',
     'business.context',
 ])->get('/auth/me', function (Request $request) {
-
     $user = $request->user();
 
     $business = app(
@@ -96,13 +95,11 @@ Route::middleware([
 
     return response()->json([
         'success' => true,
-
         'user' => [
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
         ],
-
         'business' => $business ? [
             'id' => $business->id,
             'merchant_id' => $business->merchant_id,
