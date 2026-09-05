@@ -4,6 +4,7 @@ namespace Database\Factories;
 
 use App\Domains\Organization\Models\BusinessType;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Str;
 
 /**
  * @extends Factory<BusinessType>
@@ -15,9 +16,12 @@ class BusinessTypeFactory extends Factory
     public function definition(): array
     {
         return [
-            'name' => fake()->unique()->words(2, true),
+            'name' => 'Test Business Type ' . Str::uuid(),
+
             'icon' => null,
+
             'description' => fake()->sentence(),
+
             'is_active' => true,
         ];
     }

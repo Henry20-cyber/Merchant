@@ -192,5 +192,5 @@ class BusinessRegistrationCapabilitiesApiTest extends TestCase
         $response->assertJsonValidationErrors([
             'services_enabled',
         ]);
-    }
+    } 
 }

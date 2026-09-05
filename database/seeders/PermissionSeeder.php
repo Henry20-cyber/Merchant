@@ -34,18 +34,29 @@ class PermissionSeeder extends Seeder
             'branches.create',
             'branches.update',
 
+            // Categories
+            'categories.view',
+            'categories.create',
+            'categories.update',
+            'categories.delete',
+
             // Products
             'products.view',
             'products.create',
             'products.update',
             'products.delete',
 
+            // Services
+            'services.view',
+            'services.create',
+            'services.update',
+            'services.delete',
+
             // Customers
             'customers.view',
             'customers.create',
             'customers.update',
             'customers.delete',
-
 
             // Sales
             'sales.view',

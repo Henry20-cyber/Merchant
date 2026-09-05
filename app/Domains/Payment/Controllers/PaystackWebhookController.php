@@ -46,14 +46,14 @@ class PaystackWebhookController
         }
 
         $secret = (string) config(
-            'services.paystack.webhook_secret'
+            'services.paystack.secret_key'
         );
 
         if ($secret === '') {
             return response()->json([
                 'success' => false,
                 'message' =>
-                    'Paystack webhook secret is not configured.',
+                    'Paystack secret key is not configured.',
             ], 500);
         }
 

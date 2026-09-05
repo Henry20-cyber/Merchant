@@ -48,6 +48,16 @@ class RoleService
                 'products.update',
                 'products.delete',
 
+                'services.view',
+                'services.create',
+                'services.update',
+                'services.delete',
+
+                'categories.view',
+                'categories.create',
+                'categories.update',
+                'categories.delete',
+
                 /*
                   * Customers
                   */
@@ -64,7 +74,7 @@ class RoleService
                 'sales.update',
                 'sales.cancel',
 
-                 /**
+                /**
                  * Receipts
                  * */
 
@@ -103,6 +113,15 @@ class RoleService
                 'products.view',
                 'products.create',
                 'products.update',
+
+                'services.view',
+                'services.create',
+                'services.update',
+                'services.delete',
+
+                'categories.view',
+                'categories.create',
+                'categories.update',
 
                 /*
                  * Customers
@@ -149,6 +168,10 @@ class RoleService
 
                 'products.view',
 
+                'services.view',
+
+                'categories.view',
+
                 /*
                  * Customers
                  */
@@ -191,6 +214,8 @@ class RoleService
                 'branches.view',
 
                 'products.view',
+
+                'categories.view',
 
                 'inventory.view',
                 'inventory.receive',

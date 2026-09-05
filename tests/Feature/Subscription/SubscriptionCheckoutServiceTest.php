@@ -251,4 +251,78 @@ class SubscriptionCheckoutServiceTest extends TestCase
                 ->count()
         )->toBe(0);
     }
+
+     public function test_starter_monthly_price_is_sent_to_paystack_in_kobo(): void
+{
+    $business = $this->makeBusiness();
+
+    $plan = $this->makePlan(
+        slug: 'low-monthly',
+        price: '3000.00',
+        interval: 'monthly',
+    );
+
+    $gateway = $this->gatewayMock();
+
+    $gateway
+        ->shouldReceive('initialize')
+        ->once()
+        ->with(Mockery::on(function (array $data) {
+            return $data['amount'] === 300000;
+        }))
+        ->andReturn([
+            'success' => true,
+            'authorization_url' => 'https://checkout.paystack.com/test',
+            'access_code' => 'test',
+            'reference' => 'MERCHANTOS-TEST',
+            'raw' => [],
+        ]);
+
+    $service = app(
+        SubscriptionCheckoutService::class
+    );
+
+    $service->checkout(
+        $business,
+        $plan,
+        'merchant@example.com'
+    );
+}
+
+public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
+{
+    $business = $this->makeBusiness();
+
+    $plan = $this->makePlan(
+        slug: 'low-yearly',
+        price: '30000.00',
+        interval: 'yearly',
+    );
+
+    $gateway = $this->gatewayMock();
+
+    $gateway
+        ->shouldReceive('initialize')
+        ->once()
+        ->with(Mockery::on(function (array $data) {
+            return $data['amount'] === 3000000;
+        }))
+        ->andReturn([
+            'success' => true,
+            'authorization_url' => 'https://checkout.paystack.com/test',
+            'access_code' => 'test',
+            'reference' => 'MERCHANTOS-TEST',
+            'raw' => [],
+        ]);
+
+    $service = app(
+        SubscriptionCheckoutService::class
+    );
+
+    $service->checkout(
+        $business,
+        $plan,
+        'merchant@example.com'
+    );
+}
 }

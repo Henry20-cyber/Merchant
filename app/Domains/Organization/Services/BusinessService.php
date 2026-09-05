@@ -39,6 +39,10 @@ class BusinessService
         return Business::create([
             'business_type_id' => $data['business_type_id'],
 
+            'custom_business_type' => $data['custom_business_type'] ?? null,
+
+            'merchant_id' => $this->generateUniqueMerchantId(),
+
             'name' => $data['name'],
 
             'slug' => $this->generateUniqueSlug($data['name']),
@@ -63,6 +67,23 @@ class BusinessService
         ]);
     }
 
+    /**
+ * Generate a unique public MerchantOS business identifier.
+ */
+private function generateUniqueMerchantId(): string
+{
+    do {
+        $merchantId = 'MCH-' . strtoupper(
+            Str::random(6)
+        );
+    } while (
+        Business::withTrashed()
+            ->where('merchant_id', $merchantId)
+            ->exists()
+    );
+
+    return $merchantId;
+}
       /**
      * Create the initial business capabilities.
      */

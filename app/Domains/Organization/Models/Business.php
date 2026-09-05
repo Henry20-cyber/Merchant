@@ -15,6 +15,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductBarcode;
 use App\Domains\Customer\Models\Customer;
+use App\Domains\Catalog\Models\Category;
+use App\Domains\Service\Models\Service;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Business extends Model
@@ -32,6 +34,8 @@ class Business extends Model
 
     protected $fillable = [
         'business_type_id',
+        'custom_business_type',
+        'merchant_id',
         'name',
         'slug',
         'email',
@@ -154,5 +158,21 @@ public function subscription(): HasOne
     return $this->hasOne(
         Subscription::class
     );
+}
+
+/**
+ * Categories belonging to this business.
+ */
+public function categories(): HasMany
+{
+    return $this->hasMany(Category::class);
+}
+
+/**
+ * Services belonging to this business.
+ */
+public function services(): HasMany
+{
+    return $this->hasMany(Service::class);
 }
 }

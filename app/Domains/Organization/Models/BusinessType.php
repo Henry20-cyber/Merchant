@@ -3,6 +3,7 @@
 namespace App\Domains\Organization\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use App\Domains\Organization\Models\Business;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
@@ -46,6 +47,6 @@ class BusinessType extends Model
      */
     public function businesses()
     {
-      //  return $this->hasMany(Business::class);
+        return $this->hasMany(Business::class, 'business_type_id');
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Domains\Product\Services;
 
+use App\Domains\Catalog\Models\Category;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -23,8 +24,18 @@ class ProductService
             $productData,
             $baseUnitData
         ) {
+            $categoryId = $productData['category_id'] ?? null;
+
+            if ($categoryId !== null) {
+                $this->assertCategoryBelongsToBusiness(
+                    $categoryId,
+                    $business
+                );
+            }
+
             $product = Product::create([
                 'business_id' => $business->id,
+                'category_id' => $categoryId,
                 'name' => $productData['name'],
                 'sku' => $productData['sku'] ?? null,
                 'description' => $productData['description'] ?? null,
@@ -37,7 +48,62 @@ class ProductService
                 $baseUnitData
             );
 
-            return $product->load('units');
+            return $product->load([
+                'units',
+                'category',
+            ]);
+        });
+    }
+
+    /**
+     * Update a product.
+     */
+    public function updateProduct(
+        Product $product,
+        Business $business,
+        array $data
+    ): Product {
+        $this->assertProductBelongsToBusiness(
+            $product,
+            $business
+        );
+
+        return DB::transaction(function () use (
+            $product,
+            $business,
+            $data
+        ) {
+            if (
+                array_key_exists('category_id', $data)
+                && $data['category_id'] !== null
+            ) {
+                $this->assertCategoryBelongsToBusiness(
+                    $data['category_id'],
+                    $business
+                );
+            }
+
+            $allowed = [
+                'name',
+                'sku',
+                'description',
+                'status',
+                'category_id',
+            ];
+
+            $product->update(
+                array_intersect_key(
+                    $data,
+                    array_flip($allowed)
+                )
+            );
+
+            return $product
+                ->refresh()
+                ->load([
+                    'units',
+                    'category',
+                ]);
         });
     }
 
@@ -68,7 +134,8 @@ class ProductService
 
         if ($quantity !== 1.0) {
             throw ValidationException::withMessages([
-                'quantity' => 'The base unit quantity must be exactly 1.',
+                'quantity' =>
+                    'The base unit quantity must be exactly 1.',
             ]);
         }
 
@@ -104,7 +171,8 @@ class ProductService
 
         if ($quantity <= 1) {
             throw ValidationException::withMessages([
-                'quantity' => 'A non-base unit must contain more than 1 base unit.',
+                'quantity' =>
+                    'A non-base unit must contain more than 1 base unit.',
             ]);
         }
 
@@ -114,7 +182,8 @@ class ProductService
 
         if ($exists) {
             throw ValidationException::withMessages([
-                'name' => 'This unit already exists for the product.',
+                'name' =>
+                    'This unit already exists for the product.',
             ]);
         }
 
@@ -146,37 +215,30 @@ class ProductService
             $business
         );
 
-        /*
-         * A base unit must always remain quantity = 1.
-         */
         if ($unit->is_base_unit) {
             if (
                 array_key_exists('quantity', $data)
                 && (float) $data['quantity'] !== 1.0
             ) {
                 throw ValidationException::withMessages([
-                    'quantity' => 'The base unit quantity must remain exactly 1.',
+                    'quantity' =>
+                        'The base unit quantity must remain exactly 1.',
                 ]);
             }
 
             $data['quantity'] = 1;
         } else {
-            /*
-             * Non-base units must contain more than one base unit.
-             */
             if (
                 array_key_exists('quantity', $data)
                 && (float) $data['quantity'] <= 1
             ) {
                 throw ValidationException::withMessages([
-                    'quantity' => 'A non-base unit must contain more than 1 base unit.',
+                    'quantity' =>
+                        'A non-base unit must contain more than 1 base unit.',
                 ]);
             }
         }
 
-        /*
-         * Prevent duplicate unit names within the same product.
-         */
         if (
             array_key_exists('name', $data)
             && $unit->product
@@ -186,7 +248,8 @@ class ProductService
                 ->exists()
         ) {
             throw ValidationException::withMessages([
-                'name' => 'This unit already exists for the product.',
+                'name' =>
+                    'This unit already exists for the product.',
             ]);
         }
 
@@ -222,24 +285,16 @@ class ProductService
             $business
         );
 
-        return DB::transaction(function () use (
-            $unit
-        ) {
+        return DB::transaction(function () use ($unit) {
             $product = $unit->product;
 
-            /*
-             * The selected unit must represent exactly
-             * one base unit when promoted.
-             */
             if ((float) $unit->quantity !== 1.0) {
                 throw ValidationException::withMessages([
-                    'quantity' => 'Only a unit with quantity 1 can become the base unit.',
+                    'quantity' =>
+                        'Only a unit with quantity 1 can become the base unit.',
                 ]);
             }
 
-            /*
-             * Demote the current base unit.
-             */
             $product->units()
                 ->where('is_base_unit', true)
                 ->whereKeyNot($unit->id)
@@ -247,9 +302,6 @@ class ProductService
                     'is_base_unit' => false,
                 ]);
 
-            /*
-             * Promote the selected unit.
-             */
             $unit->update([
                 'is_base_unit' => true,
                 'quantity' => 1,
@@ -271,10 +323,6 @@ class ProductService
             $business
         );
 
-        /*
-         * The base unit cannot be deleted because
-         * every product requires exactly one base unit.
-         */
         if ($unit->is_base_unit) {
             throw ValidationException::withMessages([
                 'unit' => 'The base unit cannot be deleted.',
@@ -293,7 +341,28 @@ class ProductService
     ): void {
         if ($product->business_id !== $business->id) {
             throw ValidationException::withMessages([
-                'business' => 'This product does not belong to this business.',
+                'business' =>
+                    'This product does not belong to this business.',
+            ]);
+        }
+    }
+
+    /**
+     * Ensure the category belongs to the business.
+     */
+    private function assertCategoryBelongsToBusiness(
+        string $categoryId,
+        Business $business
+    ): void {
+        $exists = Category::query()
+            ->whereKey($categoryId)
+            ->where('business_id', $business->id)
+            ->exists();
+
+        if (! $exists) {
+            throw ValidationException::withMessages([
+                'category_id' =>
+                    'The selected category does not belong to this business.',
             ]);
         }
     }
@@ -307,13 +376,15 @@ class ProductService
     ): void {
         if ($unit->business_id !== $business->id) {
             throw ValidationException::withMessages([
-                'business' => 'This product unit does not belong to this business.',
+                'business' =>
+                    'This product unit does not belong to this business.',
             ]);
         }
 
         if ($unit->product->business_id !== $business->id) {
             throw ValidationException::withMessages([
-                'business' => 'This product unit is attached to a different business.',
+                'business' =>
+                    'This product unit is attached to a different business.',
             ]);
         }
     }

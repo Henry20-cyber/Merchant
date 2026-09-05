@@ -4,113 +4,89 @@ namespace App\Domains\Identity\Support;
 
 class PermissionCatalog
 {
-    /**
-     * MerchantOS permission catalog.
-     *
-     * Each domain contains the capabilities available
-     * within that part of the system.
-     */
-    private const PERMISSIONS = [
-        'business' => [
+    public static function all(): array
+    {
+        return [
+            // Business
             'business.view',
             'business.update',
-        ],
 
-        'users' => [
+            // Users
             'users.view',
             'users.invite',
             'users.update',
-        ],
 
-        'roles' => [
+            // Roles
             'roles.view',
             'roles.create',
             'roles.update',
             'roles.delete',
             'roles.assign',
-        ],
 
-        'branches' => [
+            // Branches
             'branches.view',
             'branches.create',
             'branches.update',
-        ],
 
-        'products' => [
+            // Categories
+            'categories.view',
+            'categories.create',
+            'categories.update',
+            'categories.delete',
+
+            // Products
             'products.view',
             'products.create',
             'products.update',
             'products.delete',
-        ],
 
-        'customers' => [
+            // Services
+            'services.view',
+            'services.create',
+            'services.update',
+            'services.delete',
+
+            // Customers
             'customers.view',
             'customers.create',
             'customers.update',
             'customers.delete',
-        ],
 
-        'sales' => [
+            // Sales
             'sales.view',
             'sales.create',
             'sales.update',
             'sales.cancel',
-        ],
 
-        'orders' => [
+            // Orders
             'orders.view',
             'orders.create',
             'orders.update',
             'orders.cancel',
-        ],
 
-        'payments' => [
+            // Payments
             'payments.view',
             'payments.create',
             'payments.refund',
             'payments.void',
-        ],
 
-        'receipts' => [
+            // Receipts
             'receipts.view',
             'receipts.create',
             'receipts.print',
-        ],
 
-        'inventory' => [
+            // Inventory
             'inventory.view',
             'inventory.receive',
             'inventory.adjust',
             'inventory.transfer',
-        ],
 
-        'reports' => [
+            // Reports
             'reports.view',
             'reports.export',
-        ],
-    ];
-
-    /**
-     * Return all permissions available in MerchantOS.
-     */
-    public static function all(): array
-    {
-        return array_values(
-            array_merge(...array_values(self::PERMISSIONS))
-        );
+        ];
     }
 
-    /**
-     * Return permissions belonging to a specific domain.
-     */
-    public static function forDomain(string $domain): array
-    {
-        return self::PERMISSIONS[$domain] ?? [];
-    }
-
-    /**
-     * Determine whether a permission exists.
-     */
     public static function contains(string $permission): bool
     {
         return in_array(
@@ -120,16 +96,12 @@ class PermissionCatalog
         );
     }
 
-    /**
-     * Validate a list of permissions.
-     */
     public static function filterValid(array $permissions): array
     {
         return array_values(
-            array_filter(
+            array_intersect(
                 $permissions,
-                fn(string $permission) =>
-                self::contains($permission)
+                self::all()
             )
         );
     }

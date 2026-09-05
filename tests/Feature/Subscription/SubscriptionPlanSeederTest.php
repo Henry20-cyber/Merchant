@@ -41,10 +41,10 @@ class SubscriptionPlanSeederTest extends TestCase
         )->firstOrFail();
 
         expect($plan->name)
-            ->toBe('Low Monthly');
+            ->toBe('Starter');
 
         expect($plan->price)
-            ->toBe('5000.00');
+            ->toBe('3000.00');
 
         expect($plan->currency)
             ->toBe('NGN');
@@ -72,10 +72,10 @@ class SubscriptionPlanSeederTest extends TestCase
         )->firstOrFail();
 
         expect($plan->name)
-            ->toBe('Low Yearly');
+            ->toBe('Starter Annual');
 
         expect($plan->price)
-            ->toBe('50000.00');
+            ->toBe('30000.00');
 
         expect($plan->currency)
             ->toBe('NGN');
@@ -290,4 +290,5 @@ class SubscriptionPlanSeederTest extends TestCase
             )->toBe($receiptsEnabled);
         }
     }
+
 }

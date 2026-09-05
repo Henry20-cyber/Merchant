@@ -15,8 +15,7 @@ class BusinessController extends Controller
 {
     public function __construct(
         private BusinessService $businessService
-    ) {
-    }
+    ) {}
 
     /**
      * Register a new business.
@@ -49,13 +48,14 @@ class BusinessController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'No active business found.',
-            ], 404);
+            ], 403);
         }
 
         return response()->json([
             'success' => true,
             'data' => [
                 'id' => $business->id,
+                'merchant_id' => $business->merchant_id,
                 'name' => $business->name,
                 'slug' => $business->slug,
                 'status' => $business->status,
@@ -64,44 +64,44 @@ class BusinessController extends Controller
     }
 
     /**
- * Get a business accessible to the authenticated user.
- */
-public function show(
-    Request $request,
-    string $business,
-    BusinessService $businessService
-): JsonResponse {
-    $user = $request->user();
+     * Get a business accessible to the authenticated user.
+     */
+    public function show(
+        Request $request,
+        string $business,
+        BusinessService $businessService
+    ): JsonResponse {
+        $user = $request->user();
 
-    $businessModel = $businessService->getForUser(
-        $user,
-        $business
-    );
+        $businessModel = $businessService->getForUser(
+            $user,
+            $business
+        );
 
-    return response()->json([
-        'success' => true,
-        'data' => new BusinessResource($businessModel),
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'data' => new BusinessResource($businessModel),
+        ]);
+    }
 
-/**
- * Update a business.
- */
-public function update(
-    UpdateBusinessRequest $request,
-    string $business,
-    BusinessService $businessService
-): JsonResponse {
-    $updatedBusiness = $businessService->updateForUser(
-        $request->user(),
-        $business,
-        $request->validated()
-    );
+    /**
+     * Update a business.
+     */
+    public function update(
+        UpdateBusinessRequest $request,
+        string $business,
+        BusinessService $businessService
+    ): JsonResponse {
+        $updatedBusiness = $businessService->updateForUser(
+            $request->user(),
+            $business,
+            $request->validated()
+        );
 
-    return response()->json([
-        'success' => true,
-        'message' => 'Business updated successfully.',
-        'data' => new BusinessResource($updatedBusiness),
-    ]);
-}
+        return response()->json([
+            'success' => true,
+            'message' => 'Business updated successfully.',
+            'data' => new BusinessResource($updatedBusiness),
+        ]);
+    }
 }

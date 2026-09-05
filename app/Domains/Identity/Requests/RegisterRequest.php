@@ -2,6 +2,7 @@
 
 namespace App\Domains\Identity\Requests;
 
+use App\Domains\Organization\Models\BusinessType;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rules\Password;
 
@@ -54,6 +55,12 @@ class RegisterRequest extends FormRequest
                 'required',
                 'uuid',
                 'exists:business_types,id',
+            ],
+
+            'business.custom_business_type' => [
+                'nullable',
+                'string',
+                'max:100',
             ],
 
             'business.name' => [
@@ -126,5 +133,45 @@ class RegisterRequest extends FormRequest
                 'max:100',
             ],
         ];
+    }
+
+    public function withValidator($validator): void
+    {
+        $validator->after(function ($validator) {
+            $businessTypeId = $this->input(
+                'business.business_type_id'
+            );
+
+            $customBusinessType = $this->input(
+                'business.custom_business_type'
+            );
+
+            if (! $businessTypeId) {
+                return;
+            }
+
+            $businessType = BusinessType::query()
+                ->where('id', $businessTypeId)
+                ->where('name', 'Other')
+                ->first();
+
+            if ($businessType) {
+                if (blank($customBusinessType)) {
+                    $validator->errors()->add(
+                        'business.custom_business_type',
+                        'Please specify your business type.'
+                    );
+                }
+
+                return;
+            }
+
+            if (filled($customBusinessType)) {
+                $validator->errors()->add(
+                    'business.custom_business_type',
+                    'Custom business type can only be provided when "Other" is selected.'
+                );
+            }
+        });
     }
 }

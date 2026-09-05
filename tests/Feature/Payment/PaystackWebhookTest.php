@@ -19,14 +19,14 @@ class PaystackWebhookTest extends TestCase
     use RefreshDatabase;
 
     private string $secret =
-    'test-paystack-webhook-secret';
+    'test-paystack-secret-key';
 
     protected function setUp(): void
     {
         parent::setUp();
 
         config([
-            'services.paystack.webhook_secret' =>
+            'services.paystack.secret_key' =>
             $this->secret,
         ]);
     }
@@ -911,117 +911,117 @@ class PaystackWebhookTest extends TestCase
     }
 
     public function test_recent_received_webhook_is_not_processed_again(): void
-{
-    $payload = [
-        'event' => 'charge.success',
-        'data' => [
+    {
+        $payload = [
+            'event' => 'charge.success',
+            'data' => [
+                'reference' => 'MERCHANTOS-RECENT-001',
+            ],
+        ];
+
+        $body = json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES
+        );
+
+        $providerEventId = hash(
+            'sha256',
+            'paystack:' . $body
+        );
+
+        PaymentWebhookEvent::create([
+            'provider' => 'paystack',
+            'provider_event_id' => $providerEventId,
+            'event' => 'charge.success',
             'reference' => 'MERCHANTOS-RECENT-001',
-        ],
-    ];
-
-    $body = json_encode(
-        $payload,
-        JSON_UNESCAPED_SLASHES
-    );
-
-    $providerEventId = hash(
-        'sha256',
-        'paystack:' . $body
-    );
-
-    PaymentWebhookEvent::create([
-        'provider' => 'paystack',
-        'provider_event_id' => $providerEventId,
-        'event' => 'charge.success',
-        'reference' => 'MERCHANTOS-RECENT-001',
-        'status' => 'received',
-        'payload' => $payload,
-    ]);
-
-    $confirmationService = Mockery::mock(
-        PaymentConfirmationService::class
-    );
-
-    $confirmationService
-        ->shouldReceive('confirm')
-        ->never();
-
-    $this->app->instance(
-        PaymentConfirmationService::class,
-        $confirmationService
-    );
-
-    $this->postSignedWebhook($payload)
-        ->assertStatus(200)
-        ->assertJson([
-            'success' => true,
+            'status' => 'received',
+            'payload' => $payload,
         ]);
-}
 
-public function test_stale_received_webhook_can_be_reclaimed(): void
-{
-    $payload = [
-        'event' => 'charge.success',
-        'data' => [
+        $confirmationService = Mockery::mock(
+            PaymentConfirmationService::class
+        );
+
+        $confirmationService
+            ->shouldReceive('confirm')
+            ->never();
+
+        $this->app->instance(
+            PaymentConfirmationService::class,
+            $confirmationService
+        );
+
+        $this->postSignedWebhook($payload)
+            ->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+            ]);
+    }
+
+    public function test_stale_received_webhook_can_be_reclaimed(): void
+    {
+        $payload = [
+            'event' => 'charge.success',
+            'data' => [
+                'reference' => 'MERCHANTOS-STALE-001',
+            ],
+        ];
+
+        $body = json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES
+        );
+
+        $providerEventId = hash(
+            'sha256',
+            'paystack:' . $body
+        );
+
+        $event = PaymentWebhookEvent::create([
+            'provider' => 'paystack',
+            'provider_event_id' => $providerEventId,
+            'event' => 'charge.success',
             'reference' => 'MERCHANTOS-STALE-001',
-        ],
-    ];
+            'status' => 'received',
+            'payload' => $payload,
+        ]);
 
-    $body = json_encode(
-        $payload,
-        JSON_UNESCAPED_SLASHES
-    );
-
-    $providerEventId = hash(
-        'sha256',
-        'paystack:' . $body
-    );
-
-    $event = PaymentWebhookEvent::create([
-        'provider' => 'paystack',
-        'provider_event_id' => $providerEventId,
-        'event' => 'charge.success',
-        'reference' => 'MERCHANTOS-STALE-001',
-        'status' => 'received',
-        'payload' => $payload,
-    ]);
-
-    /*
+        /*
      * Simulate a webhook processor that crashed more than
      * ten minutes ago.
      */
-    $event->forceFill([
-        'updated_at' => now()->subMinutes(11),
-    ])->save();
+        $event->forceFill([
+            'updated_at' => now()->subMinutes(11),
+        ])->save();
 
-    $confirmationService = Mockery::mock(
-        PaymentConfirmationService::class
-    );
+        $confirmationService = Mockery::mock(
+            PaymentConfirmationService::class
+        );
 
-    $confirmationService
-        ->shouldReceive('confirm')
-        ->once()
-        ->with('MERCHANTOS-STALE-001');
-
-    $this->app->instance(
-        PaymentConfirmationService::class,
         $confirmationService
-    );
+            ->shouldReceive('confirm')
+            ->once()
+            ->with('MERCHANTOS-STALE-001');
 
-    $this->postSignedWebhook($payload)
-        ->assertStatus(200)
-        ->assertJson([
-            'success' => true,
-        ]);
+        $this->app->instance(
+            PaymentConfirmationService::class,
+            $confirmationService
+        );
 
-    $event->refresh();
+        $this->postSignedWebhook($payload)
+            ->assertStatus(200)
+            ->assertJson([
+                'success' => true,
+            ]);
 
-    expect($event->status)
-        ->toBe('processed');
+        $event->refresh();
 
-    expect($event->processed_at)
-        ->not->toBeNull();
-}
+        expect($event->status)
+            ->toBe('processed');
+
+        expect($event->processed_at)
+            ->not->toBeNull();
+    }
 
     /*
     |--------------------------------------------------------------------------

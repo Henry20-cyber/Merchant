@@ -5,11 +5,12 @@ namespace Tests\Feature\Sales;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
+use App\Domains\Sales\Services\SaleService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
-use App\Domains\Sales\Services\SaleService;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -72,6 +73,49 @@ class SaleCustomerTest extends TestCase
     }
 
     /**
+     * Create an active cashier belonging to the business.
+     */
+    private function createCashierFor(
+        Business $business
+    ): User {
+        $cashier = User::factory()->create();
+
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $cashier->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+
+        return $cashier;
+    }
+
+    /**
+     * Create an active subscription for the business.
+     */
+    private function createSubscriptionFor(
+        Business $business
+    ): Subscription {
+        $plan = SubscriptionPlan::factory()->create([
+            'transaction_daily_limit' => 1000,
+            'transaction_monthly_limit' => 10000,
+            'is_active' => true,
+        ]);
+
+        return Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
+            'grace_period_ends_at' => null,
+            'cancelled_at' => null,
+            'ended_at' => null,
+        ]);
+    }
+
+    /**
      * Walk-in sales do not require a customer.
      */
     public function test_walk_in_sale_can_be_created_without_customer(): void
@@ -80,10 +124,11 @@ class SaleCustomerTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
-        [$product, $unit] =
-            $this->createProductWithStock($business);
+        [$product, $unit] = $this->createProductWithStock(
+            $business
+        );
 
         $sale = app(SaleService::class)->create(
             $business,
@@ -115,15 +160,16 @@ class SaleCustomerTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $customer = Customer::factory()->create([
             'business_id' => $business->id,
             'status' => 'active',
         ]);
 
-        [$product, $unit] =
-            $this->createProductWithStock($business);
+        [$product, $unit] = $this->createProductWithStock(
+            $business
+        );
 
         $sale = app(SaleService::class)->create(
             $business,
@@ -162,15 +208,16 @@ class SaleCustomerTest extends TestCase
 
         $businessB = Business::factory()->create();
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($businessA);
 
         $customerB = Customer::factory()->create([
             'business_id' => $businessB->id,
             'status' => 'active',
         ]);
 
-        [$product, $unit] =
-            $this->createProductWithStock($businessA);
+        [$product, $unit] = $this->createProductWithStock(
+            $businessA
+        );
 
         try {
             app(SaleService::class)->create(
@@ -208,15 +255,16 @@ class SaleCustomerTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $customer = Customer::factory()->create([
             'business_id' => $business->id,
             'status' => 'inactive',
         ]);
 
-        [$product, $unit] =
-            $this->createProductWithStock($business);
+        [$product, $unit] = $this->createProductWithStock(
+            $business
+        );
 
         try {
             app(SaleService::class)->create(
@@ -243,26 +291,4 @@ class SaleCustomerTest extends TestCase
             'customer_id' => $customer->id,
         ]);
     }
-
-    private function createSubscriptionFor(
-    Business $business
-): Subscription {
-    $plan = SubscriptionPlan::factory()->create([
-        'transaction_daily_limit' => 1000,
-        'transaction_monthly_limit' => 10000,
-        'is_active' => true,
-    ]);
-
-    return Subscription::factory()->create([
-        'business_id' => $business->id,
-        'plan_id' => $plan->id,
-        'status' => 'active',
-        'starts_at' => now()->subDay(),
-        'current_period_start' => now()->subDay(),
-        'current_period_end' => now()->addMonth(),
-        'grace_period_ends_at' => null,
-        'cancelled_at' => null,
-        'ended_at' => null,
-    ]);
-}
 }

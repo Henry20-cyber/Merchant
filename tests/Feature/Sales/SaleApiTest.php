@@ -772,6 +772,45 @@ class SaleApiTest extends TestCase
         ]);
     }
 
+    public function test_completed_paid_sale_automatically_creates_receipt(): void
+{
+    [$business, $owner] =
+        $this->createBusinessWithOwner();
+
+    [$product, $unit] =
+        $this->createProductWithStock($business);
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->postJson(
+            '/api/businesses/current/sales',
+            $this->salePayload(
+                $product,
+                $unit
+            )
+        );
+
+    $response
+        ->assertCreated()
+        ->assertJsonPath(
+            'success',
+            true
+        );
+
+    $saleId = $response->json('data.id');
+
+    $this->assertDatabaseHas('receipts', [
+        'business_id' => $business->id,
+        'sale_id' => $saleId,
+        'status' => 'issued',
+        'issued_by' => $owner->id,
+    ]);
+}
+
+
     private function createSubscriptionFor(
         Business $business
     ): Subscription {

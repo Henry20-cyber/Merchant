@@ -40,10 +40,10 @@ class SubscriptionPlanSeeder extends Seeder
                 'is_active' => true,
             ],
             [
-                'name' => 'Low Monthly',
+                'name' => 'Starter',
                 'slug' => 'low-monthly',
                 'description' => 'For small businesses getting started with MerchantOS.',
-                'price' => 5000,
+                'price' => 3000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
                 'transaction_daily_limit' => 100,
@@ -66,10 +66,10 @@ class SubscriptionPlanSeeder extends Seeder
             ],
 
             [
-                'name' => 'Low Yearly',
+                'name' => 'Starter Annual',
                 'slug' => 'low-yearly',
                 'description' => 'Annual plan for small businesses with two months free.',
-                'price' => 50000,
+                'price' => 30000,
                 'currency' => 'NGN',
                 'billing_interval' => 'yearly',
                 'transaction_daily_limit' => 100,

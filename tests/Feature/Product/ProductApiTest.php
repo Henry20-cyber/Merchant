@@ -241,4 +241,73 @@ class ProductApiTest extends TestCase
             'sku' => 'GALA-004',
         ]);
     }
+
+    public function test_owner_can_create_product_with_category(): void
+{
+    [, $business] = $this->ownerWithBusiness();
+
+    $category = \App\Domains\Catalog\Models\Category::create([
+        'business_id' => $business->id,
+        'name' => 'Drinks',
+        'slug' => 'drinks',
+        'status' => 'active',
+    ]);
+
+    $response = $this->withBusiness($business)
+        ->postJson(
+            '/api/businesses/current/products',
+            [
+                'name' => 'Coca-Cola 50cl',
+                'sku' => 'COKE-50',
+                'category_id' => $category->id,
+                'base_unit' => [
+                    'name' => 'Piece',
+                    'cost_price' => 300,
+                    'selling_price' => 500,
+                    'currency' => 'NGN',
+                ],
+            ]
+        );
+
+    $response
+        ->assertCreated()
+        ->assertJsonPath(
+            'product.category.id',
+            $category->id
+        );
+}
+
+public function test_product_cannot_use_category_from_another_business(): void
+{
+    [, $business] = $this->ownerWithBusiness();
+
+    $otherBusiness = Business::factory()->create();
+
+    $category = \App\Domains\Catalog\Models\Category::create([
+        'business_id' => $otherBusiness->id,
+        'name' => 'Private',
+        'slug' => 'private',
+        'status' => 'active',
+    ]);
+
+    $response = $this->withBusiness($business)
+        ->postJson(
+            '/api/businesses/current/products',
+            [
+                'name' => 'Coca-Cola 50cl',
+                'sku' => 'COKE-CROSS',
+                'category_id' => $category->id,
+                'base_unit' => [
+                    'name' => 'Piece',
+                    'cost_price' => 300,
+                    'selling_price' => 500,
+                    'currency' => 'NGN',
+                ],
+            ]
+        );
+
+    $response
+        ->assertStatus(422)
+        ->assertJsonValidationErrors('category_id');
+}
 }

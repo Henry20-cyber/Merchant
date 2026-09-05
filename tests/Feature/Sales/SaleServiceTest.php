@@ -12,6 +12,7 @@ use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Sales\Services\SaleService;
 use App\Domains\Service\Models\Service;
+use App\Domains\Organization\Models\BusinessUser;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
@@ -27,7 +28,7 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
             'business_id' => $business->id,
@@ -69,7 +70,7 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
             'business_id' => $business->id,
@@ -122,7 +123,7 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
             'business_id' => $business->id,
@@ -160,7 +161,7 @@ class SaleServiceTest extends TestCase
 
         $businessB = Business::factory()->create();
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($businessA);
 
         $service = Service::factory()->create([
             'business_id' => $businessB->id,
@@ -190,7 +191,7 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
             'business_id' => $business->id,
@@ -220,7 +221,7 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
-        $cashier = User::factory()->create();
+        $cashier = $this->createCashierFor($business);
 
         /*
          * Physical product.
@@ -305,6 +306,77 @@ class SaleServiceTest extends TestCase
         );
     }
 
+    public function test_product_sale_uses_catalog_cost_even_when_client_supplies_unit_cost(): void
+{
+    $business = Business::factory()->create();
+
+    $this->createSubscriptionFor($business);
+
+    $cashier = $this->createCashierFor($business);
+
+    $product = Product::factory()->create([
+        'business_id' => $business->id,
+    ]);
+
+    $unit = ProductUnit::factory()->create([
+        'business_id' => $business->id,
+        'product_id' => $product->id,
+        'quantity' => 10,
+        'cost_price' => 5000,
+        'selling_price' => 8000,
+        'is_base_unit' => true,
+        'is_sellable' => true,
+        'is_purchasable' => true,
+    ]);
+
+    \App\Domains\Inventory\Models\Stock::create([
+        'business_id' => $business->id,
+        'product_id' => $product->id,
+        'product_unit_id' => $unit->id,
+        'quantity' => 10,
+        'reorder_level' => 2,
+    ]);
+
+    $sale = app(SaleService::class)->create(
+        $business,
+        $cashier,
+        [
+            [
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity' => 2,
+
+                // Client attempts to manipulate COGS.
+                'unit_price' => 7500,
+                'unit_cost' => 1,
+            ],
+        ]
+    );
+
+    $item = $sale->items()
+        ->where('product_id', $product->id)
+        ->first();
+
+    $this->assertNotNull($item);
+
+    // Transaction price may be overridden.
+    $this->assertEquals(
+        7500,
+        (float) $item->unit_price
+    );
+
+    // Cost must always come from the catalog.
+    $this->assertEquals(
+        5000,
+        (float) $item->unit_cost
+    );
+
+    $this->assertEquals(
+        15000,
+        (float) $item->total
+    );
+}
+
     private function createSubscriptionFor(
     Business $business
 ): Subscription {
@@ -325,5 +397,19 @@ class SaleServiceTest extends TestCase
         'cancelled_at' => null,
         'ended_at' => null,
     ]);
+}
+
+private function createCashierFor(Business $business): User
+{
+    $cashier = User::factory()->create();
+
+    BusinessUser::create([
+        'business_id' => $business->id,
+        'user_id' => $cashier->id,
+        'status' => 'active',
+        'joined_at' => now(),
+    ]);
+
+    return $cashier;
 }
 }

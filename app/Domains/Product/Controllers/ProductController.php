@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Product\Services\ProductService;
+use App\Domains\Catalog\Models\Category;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -13,8 +14,7 @@ class ProductController extends Controller
 {
     public function __construct(
         private ProductService $productService
-    ) {
-    }
+    ) {}
 
 
 
@@ -50,10 +50,12 @@ class ProductController extends Controller
     public function index(Request $request): JsonResponse
     {
         $business = $this->currentBusiness($request);
-
         $products = Product::query()
             ->where('business_id', $business->id)
-            ->with('units')
+            ->with([
+                'units',
+                'category',
+            ])
             ->latest()
             ->get();
 
@@ -88,10 +90,16 @@ class ProductController extends Controller
                 'string',
             ],
 
+
             'status' => [
                 'nullable',
                 'string',
                 'max:50',
+            ],
+
+            'category_id' => [
+                'nullable',
+                'uuid',
             ],
 
             'base_unit' => [
@@ -147,6 +155,7 @@ class ProductController extends Controller
                 'sku' => $validated['sku'],
                 'description' => $validated['description'] ?? null,
                 'status' => $validated['status'] ?? 'active',
+                'category_id' => $validated['category_id'] ?? null,
             ],
             [
                 'name' => $validated['base_unit']['name'],
@@ -155,13 +164,13 @@ class ProductController extends Controller
                 'selling_price' => $validated['base_unit']['selling_price'],
                 'currency' => $validated['base_unit']['currency'],
                 'is_sellable' =>
-                    $validated['base_unit']['is_sellable'] ?? true,
+                $validated['base_unit']['is_sellable'] ?? true,
                 'is_purchasable' =>
-                    $validated['base_unit']['is_purchasable'] ?? true,
+                $validated['base_unit']['is_purchasable'] ?? true,
             ]
         );
 
-        $product->load('units');
+        $product->load('units', 'category');
 
         return response()->json([
             'success' => true,
@@ -183,7 +192,7 @@ class ProductController extends Controller
             $business
         );
 
-        $product->load('units');
+        $product->load('units', 'category');
 
         return response()->json([
             'success' => true,
@@ -230,11 +239,19 @@ class ProductController extends Controller
                 'string',
                 'max:50',
             ],
+
+            'category_id' => [
+                'sometimes',
+                'nullable',
+                'uuid',
+            ],
         ]);
 
-        $product->update($validated);
-
-        $product->load('units');
+        $product = $this->productService->updateProduct(
+            $product,
+            $business,
+            $validated
+        );
 
         return response()->json([
             'success' => true,

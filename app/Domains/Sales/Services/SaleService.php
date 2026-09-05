@@ -9,6 +9,7 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Subscription\Services\UsageService;
+use App\Domains\Receipt\Services\ReceiptService;
 use App\Domains\Payment\Services\PaymentService;
 use App\Domains\Service\Models\Service;
 use App\Domains\Sales\Models\Sale;
@@ -22,14 +23,15 @@ class SaleService
 
     private UsageService $usageService;
     private PaymentService $paymentService;
-
+    private ReceiptService $receiptService;
     public function __construct(
         UsageService $usageService,
-        PaymentService $paymentService
-
+        PaymentService $paymentService,
+        ReceiptService $receiptService
     ) {
         $this->usageService = $usageService;
         $this->paymentService = $paymentService;
+        $this->receiptService = $receiptService;
     }
     /**
      * Create a completed sale and process all items atomically.
@@ -202,6 +204,30 @@ class SaleService
                         'method' => $sale->payment_method,
                         'status' => 'paid',
                     ]
+                );
+
+                /*
+     |--------------------------------------------------------------------------
+     | Receipt
+     |--------------------------------------------------------------------------
+     |
+     | A completed paid sale automatically receives its immutable
+     | customer-facing receipt.
+     |
+     | ReceiptService owns:
+     * - receipt validation
+     * - receipt numbering
+     * - historical snapshot creation
+     * - duplicate protection
+     *
+     * The same database transaction covers the sale, payment,
+     * inventory changes, and receipt.
+     |
+     */
+
+                $this->receiptService->issue(
+                    $sale,
+                    $cashier
                 );
             }
 
@@ -435,7 +461,7 @@ class SaleService
         );
 
         $unitCost = $this->money(
-            $item['unit_cost'] ?? $unit->cost_price
+            $unit->cost_price
         );
 
         $discount = $this->money(

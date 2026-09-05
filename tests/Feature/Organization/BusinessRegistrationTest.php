@@ -166,6 +166,37 @@ class BusinessRegistrationTest extends TestCase
     );
 }
 
+public function test_business_registration_generates_unique_merchant_id(): void
+{
+    $businessA = app(BusinessService::class)
+        ->registerBusiness(
+            $this->validBusinessData(true, false)
+        );
+
+    $businessB = app(BusinessService::class)
+        ->registerBusiness(
+            $this->validBusinessData(false, true)
+        );
+
+    $this->assertNotNull($businessA->merchant_id);
+    $this->assertNotNull($businessB->merchant_id);
+
+    $this->assertMatchesRegularExpression(
+        '/^MCH-[A-Z0-9]{6}$/',
+        $businessA->merchant_id
+    );
+
+    $this->assertMatchesRegularExpression(
+        '/^MCH-[A-Z0-9]{6}$/',
+        $businessB->merchant_id
+    );
+
+    $this->assertNotSame(
+        $businessA->merchant_id,
+        $businessB->merchant_id
+    );
+}
+
 public function test_business_registration_creates_free_subscription(): void
 {
     $business = app(BusinessService::class)
@@ -184,5 +215,46 @@ public function test_business_registration_creates_free_subscription(): void
     expect($subscription->plan->slug)->toBe('free');
     expect($subscription->plan->transaction_daily_limit)->toBe(10);
     expect($subscription->plan->transaction_monthly_limit)->toBe(30);
+}
+
+public function test_business_registration_stores_custom_business_type(): void
+{
+    $otherType = BusinessType::factory()->create([
+        'name' => 'Other',
+    ]);
+
+    $data = $this->validBusinessData(true, false);
+
+    $data['business_type_id'] = $otherType->id;
+    $data['custom_business_type'] = 'Auto Parts';
+
+    $business = app(BusinessService::class)
+        ->registerBusiness($data);
+
+    $this->assertDatabaseHas('businesses', [
+        'id' => $business->id,
+        'business_type_id' => $otherType->id,
+        'custom_business_type' => 'Auto Parts',
+    ]);
+}
+
+public function test_standard_business_registration_does_not_store_custom_business_type(): void
+{
+    $standardType = BusinessType::factory()->create([
+        'name' => 'Supermarket',
+    ]);
+
+    $data = $this->validBusinessData(true, false);
+
+    $data['business_type_id'] = $standardType->id;
+
+    $business = app(BusinessService::class)
+        ->registerBusiness($data);
+
+    $this->assertDatabaseHas('businesses', [
+        'id' => $business->id,
+        'business_type_id' => $standardType->id,
+        'custom_business_type' => null,
+    ]);
 }
 }

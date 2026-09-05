@@ -19,6 +19,8 @@ class BusinessFactory extends Factory
         return [
             'business_type_id' => BusinessType::factory(),
 
+            'merchant_id' => 'MCH-' . strtoupper(Str::random(6)),
+
             'name' => fake()->company(),
 
             'slug' => fn (array $attributes) =>
@@ -44,5 +46,16 @@ class BusinessFactory extends Factory
 
             'status' => 'trial',
         ];
+    }
+
+    /**
+     * Use an existing business type.
+     */
+    public function withBusinessType(
+        BusinessType $businessType
+    ): static {
+        return $this->state([
+            'business_type_id' => $businessType->id,
+        ]);
     }
 }
