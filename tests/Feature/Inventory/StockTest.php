@@ -31,13 +31,11 @@ class StockTest extends TestCase
         return [$product, $unit];
     }
 
-    public function test_stock_can_be_created_for_a_product_unit(): void
+    public function test_stock_can_be_created_for_a_product(): void
     {
         $business = Business::factory()->create();
 
-        [$product, $unit] = $this->createProductWithBaseUnit(
-            $business
-        );
+        [$product, $unit] = $this->createProductWithBaseUnit($business);
 
         $stock = app(StockService::class)->createStock(
             $business,
@@ -49,7 +47,6 @@ class StockTest extends TestCase
             'id' => $stock->id,
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 0,
             'reorder_level' => 0,
         ]);

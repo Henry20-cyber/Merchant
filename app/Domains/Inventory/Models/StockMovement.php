@@ -24,6 +24,7 @@ class StockMovement extends Model
         'stock_id',
         'type',
         'quantity',
+        'base_quantity',
         'quantity_before',
         'quantity_after',
         'reference_type',
@@ -36,6 +37,7 @@ class StockMovement extends Model
     {
         return [
             'quantity' => 'decimal:4',
+            'base_quantity' => 'decimal:4',
             'quantity_before' => 'decimal:4',
             'quantity_after' => 'decimal:4',
             'created_at' => 'datetime',

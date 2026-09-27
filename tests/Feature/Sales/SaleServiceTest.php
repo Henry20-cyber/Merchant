@@ -2,16 +2,16 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Sales\Models\Sale;
-use App\Domains\Sales\Models\SaleItem;
-use App\Domains\Subscription\Models\Subscription;
-use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Sales\Services\SaleService;
 use App\Domains\Service\Models\Service;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -90,9 +90,6 @@ class SaleServiceTest extends TestCase
             ]
         );
 
-        /*
-         * Change the current service price after the sale.
-         */
         $service->update([
             'price' => 15000,
         ]);
@@ -103,9 +100,6 @@ class SaleServiceTest extends TestCase
 
         $this->assertNotNull($item);
 
-        /*
-         * Historical sale must remain at ₦10,000.
-         */
         $this->assertEquals(
             10000,
             (float) $item->unit_price
@@ -241,10 +235,14 @@ class SaleServiceTest extends TestCase
             'is_purchasable' => true,
         ]);
 
-        $stock = \App\Domains\Inventory\Models\Stock::create([
+        /*
+         * Stock is now stored once per product.
+         *
+         * No product_unit_id column.
+         */
+        $stock = Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 10,
             'reorder_level' => 2,
         ]);
@@ -307,109 +305,123 @@ class SaleServiceTest extends TestCase
     }
 
     public function test_product_sale_uses_catalog_cost_even_when_client_supplies_unit_cost(): void
-{
-    $business = Business::factory()->create();
+    {
+        $business = Business::factory()->create();
 
-    $this->createSubscriptionFor($business);
+        $this->createSubscriptionFor($business);
 
-    $cashier = $this->createCashierFor($business);
+        $cashier = $this->createCashierFor($business);
 
-    $product = Product::factory()->create([
-        'business_id' => $business->id,
-    ]);
+        $product = Product::factory()->create([
+            'business_id' => $business->id,
+        ]);
 
-    $unit = ProductUnit::factory()->create([
-        'business_id' => $business->id,
-        'product_id' => $product->id,
-        'quantity' => 10,
-        'cost_price' => 5000,
-        'selling_price' => 8000,
-        'is_base_unit' => true,
-        'is_sellable' => true,
-        'is_purchasable' => true,
-    ]);
+        /*
+         * This is the base unit.
+         *
+         * quantity = 1 means:
+         *
+         * 1 unit = 1 base unit.
+         */
+        $unit = ProductUnit::factory()->create([
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'cost_price' => 5000,
+            'selling_price' => 8000,
+            'is_base_unit' => true,
+            'is_sellable' => true,
+            'is_purchasable' => true,
+        ]);
 
-    \App\Domains\Inventory\Models\Stock::create([
-        'business_id' => $business->id,
-        'product_id' => $product->id,
-        'product_unit_id' => $unit->id,
-        'quantity' => 10,
-        'reorder_level' => 2,
-    ]);
+        /*
+         * Stock is stored in canonical base units.
+         */
+        Stock::create([
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+            'quantity' => 10,
+            'reorder_level' => 2,
+        ]);
 
-    $sale = app(SaleService::class)->create(
-        $business,
-        $cashier,
-        [
+        $sale = app(SaleService::class)->create(
+            $business,
+            $cashier,
             [
-                'product_id' => $product->id,
-                'product_unit_id' => $unit->id,
-                'quantity' => 2,
+                [
+                    'product_id' => $product->id,
+                    'product_unit_id' => $unit->id,
+                    'quantity' => 2,
 
-                // Client attempts to manipulate COGS.
-                'unit_price' => 7500,
-                'unit_cost' => 1,
-            ],
-        ]
-    );
+                    // Client attempts to manipulate price/cost.
+                    'unit_price' => 7500,
+                    'unit_cost' => 1,
+                ],
+            ]
+        );
 
-    $item = $sale->items()
-        ->where('product_id', $product->id)
-        ->first();
+        $item = $sale->items()
+            ->where('product_id', $product->id)
+            ->first();
 
-    $this->assertNotNull($item);
+        $this->assertNotNull($item);
 
-    // Transaction price may be overridden.
-    $this->assertEquals(
-        7500,
-        (float) $item->unit_price
-    );
+        /*
+         * Transaction price may be overridden.
+         */
+        $this->assertEquals(
+            7500,
+            (float) $item->unit_price
+        );
 
-    // Cost must always come from the catalog.
-    $this->assertEquals(
-        5000,
-        (float) $item->unit_cost
-    );
+        /*
+         * Cost must always come from the catalog.
+         */
+        $this->assertEquals(
+            5000,
+            (float) $item->unit_cost
+        );
 
-    $this->assertEquals(
-        15000,
-        (float) $item->total
-    );
-}
+        $this->assertEquals(
+            15000,
+            (float) $item->total
+        );
+    }
 
     private function createSubscriptionFor(
-    Business $business
-): Subscription {
-    $plan = SubscriptionPlan::factory()->create([
-        'transaction_daily_limit' => 1000,
-        'transaction_monthly_limit' => 10000,
-        'is_active' => true,
-    ]);
+        Business $business
+    ): Subscription {
+        $plan = SubscriptionPlan::factory()->create([
+            'transaction_daily_limit' => 1000,
+            'transaction_monthly_limit' => 10000,
+            'is_active' => true,
+        ]);
 
-    return Subscription::factory()->create([
-        'business_id' => $business->id,
-        'plan_id' => $plan->id,
-        'status' => 'active',
-        'starts_at' => now()->subDay(),
-        'current_period_start' => now()->subDay(),
-        'current_period_end' => now()->addMonth(),
-        'grace_period_ends_at' => null,
-        'cancelled_at' => null,
-        'ended_at' => null,
-    ]);
-}
+        return Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
+            'grace_period_ends_at' => null,
+            'cancelled_at' => null,
+            'ended_at' => null,
+        ]);
+    }
 
-private function createCashierFor(Business $business): User
-{
-    $cashier = User::factory()->create();
+    private function createCashierFor(
+        Business $business
+    ): User {
+        $cashier = User::factory()->create();
 
-    BusinessUser::create([
-        'business_id' => $business->id,
-        'user_id' => $cashier->id,
-        'status' => 'active',
-        'joined_at' => now(),
-    ]);
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $cashier->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
 
-    return $cashier;
-}
+        return $cashier;
+    }
 }

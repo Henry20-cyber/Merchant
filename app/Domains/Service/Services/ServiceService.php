@@ -5,7 +5,9 @@ namespace App\Domains\Service\Services;
 use App\Domains\Catalog\Models\Category;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Service\Models\Service;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class ServiceService
@@ -31,11 +33,24 @@ class ServiceService
                 );
             }
 
+            $imagePath = null;
+
+            if (
+                isset($data['image']) &&
+                $data['image'] instanceof UploadedFile
+            ) {
+                $imagePath = $data['image']->store(
+                    'services/' . $business->id,
+                    'public'
+                );
+            }
+
             $service = Service::create([
                 'business_id' => $business->id,
                 'category_id' => $data['category_id'] ?? null,
                 'name' => $data['name'],
                 'description' => $data['description'] ?? null,
+                'image_path' => $imagePath,
                 'price' => $data['price'] ?? 0,
                 'is_active' => $data['is_active'] ?? true,
             ]);
@@ -72,9 +87,31 @@ class ServiceService
                 );
             }
 
+            /*
+             * Handle a new image.
+             */
+            if (
+                isset($data['image']) &&
+                $data['image'] instanceof UploadedFile
+            ) {
+                if ($service->image_path) {
+                    Storage::disk('public')->delete(
+                        $service->image_path
+                    );
+                }
+
+                $data['image_path'] = $data['image']->store(
+                    'services/' . $business->id,
+                    'public'
+                );
+
+                unset($data['image']);
+            }
+
             $allowed = [
                 'name',
                 'description',
+                'image_path',
                 'price',
                 'is_active',
                 'category_id',
@@ -123,7 +160,7 @@ class ServiceService
         if (! $exists) {
             throw ValidationException::withMessages([
                 'category_id' =>
-                    'The selected category does not belong to this business.',
+                'The selected category does not belong to this business.',
             ]);
         }
     }
@@ -138,7 +175,7 @@ class ServiceService
         if ($service->business_id !== $business->id) {
             throw ValidationException::withMessages([
                 'business' =>
-                    'This service does not belong to this business.',
+                'This service does not belong to this business.',
             ]);
         }
     }

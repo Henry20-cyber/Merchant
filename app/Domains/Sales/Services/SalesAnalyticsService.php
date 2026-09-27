@@ -160,14 +160,14 @@ class SalesAnalyticsService
             ->get();
 
         $cogs = (float) $items->sum(
-            fn ($item) =>
-                (float) $item->quantity *
+            fn($item) =>
+            (float) $item->quantity *
                 (float) $item->unit_cost
         );
 
         $unitsSold = (int) $items->sum(
-            fn ($item) =>
-                (float) $item->quantity
+            fn($item) =>
+            (float) $item->quantity
         );
 
         $grossProfit = $revenue - $cogs;
@@ -446,6 +446,9 @@ class SalesAnalyticsService
                 ) AS name
             ")
             ->selectRaw(
+                'SUM(sale_items.quantity) AS units_sold'
+            )
+            ->selectRaw(
                 'SUM(sale_items.total) AS revenue'
             )
             ->groupBy(
@@ -484,6 +487,7 @@ class SalesAnalyticsService
                     'item_type' => $row->item_type,
                     'type' => $row->item_type,
                     'name' => $row->name,
+                    'units_sold' => (float) $row->units_sold,
                     'revenue' => $revenue,
                     'percentage' => $percentage,
                 ];
@@ -535,6 +539,9 @@ class SalesAnalyticsService
                 ) AS name
             ")
             ->selectRaw(
+                'SUM(sale_items.quantity) AS units_sold'
+            )
+            ->selectRaw(
                 'SUM(sale_items.total) AS revenue'
             )
             ->groupBy(
@@ -569,6 +576,7 @@ class SalesAnalyticsService
                     'item_type' => $row->item_type,
                     'type' => $row->item_type,
                     'name' => $row->name,
+                    'units_sold' => (float) $row->units_sold,
                     'revenue' => $revenue,
                     'percentage' => $percentage,
                 ];

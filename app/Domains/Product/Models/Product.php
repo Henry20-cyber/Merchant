@@ -31,6 +31,7 @@ class Product extends Model
         'name',
         'sku',
         'description',
+        'image_path',
         'status',
     ];
 
@@ -42,6 +43,10 @@ class Product extends Model
             'deleted_at' => 'datetime',
         ];
     }
+
+    protected $appends = [
+    'image_url',
+];
 
     /**
      * The business this product belongs to.
@@ -82,4 +87,11 @@ class Product extends Model
     {
         return $this->hasMany(Stock::class);
     }
+
+    public function getImageUrlAttribute(): ?string
+{
+    return $this->image_path
+        ? asset('storage/' . $this->image_path)
+        : null;
+}
 }

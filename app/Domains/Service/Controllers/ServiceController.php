@@ -12,8 +12,7 @@ class ServiceController extends Controller
 {
     public function __construct(
         private ServiceService $serviceService
-    ) {
-    }
+    ) {}
 
     /**
      * Ensure the service belongs to the current business.
@@ -64,6 +63,13 @@ class ServiceController extends Controller
             'description' => [
                 'nullable',
                 'string',
+            ],
+
+            'image' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
             ],
 
             'price' => [
@@ -142,6 +148,14 @@ class ServiceController extends Controller
                 'sometimes',
                 'nullable',
                 'string',
+            ],
+
+            'image' => [
+                'sometimes',
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
             ],
 
             'price' => [

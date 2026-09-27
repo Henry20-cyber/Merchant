@@ -13,26 +13,30 @@ use Illuminate\Validation\ValidationException;
 
 class StockService
 {
+    public function __construct(
+        private readonly InventoryQuantityConverter $quantityConverter
+    ) {}
+
     /**
-     * Create an empty stock record for a product unit.
+     * Create an empty stock record for a product.
+     *
+     * Inventory is stored in the product's canonical
+     * base unit.
      *
      * This does not create a stock movement.
      */
     public function createStock(
         Business $business,
-        Product $product,
-        ProductUnit $unit
+        Product $product
     ): Stock {
-        $this->assertOwnership(
+        $this->assertProductOwnership(
             $business,
-            $product,
-            $unit
+            $product
         );
 
         return Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 0,
             'reorder_level' => 0,
         ]);
@@ -41,11 +45,9 @@ class StockService
     /**
      * Receive stock into inventory.
      *
-     * Example:
-     *
-     * 0 -> 50
-     *
-     * Creates a "receive" stock movement.
+     * The supplied quantity is expressed in the selected
+     * transaction unit and converted to base units before
+     * changing the stock balance.
      */
     public function receive(
         Business $business,
@@ -71,23 +73,23 @@ class StockService
                 $unit
             );
 
-            $stock = $this->getOrCreateStock(
-                $business,
-                $product,
+            $baseQuantity = $this->quantityConverter->toBaseUnits(
+                $quantity,
                 $unit
             );
 
-            /*
-             * Lock the stock row so concurrent inventory
-             * operations cannot overwrite each other's values.
-             */
+            $stock = $this->getOrCreateStock(
+                $business,
+                $product
+            );
+
             $stock = Stock::query()
                 ->whereKey($stock->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             $before = (float) $stock->quantity;
-            $after = $before + $quantity;
+            $after = $before + $baseQuantity;
 
             $stock->update([
                 'quantity' => $after,
@@ -100,6 +102,7 @@ class StockService
                 stock: $stock,
                 type: 'receive',
                 quantity: $quantity,
+                baseQuantity: $baseQuantity,
                 quantityBefore: $before,
                 quantityAfter: $after,
                 note: $note,
@@ -113,11 +116,8 @@ class StockService
     /**
      * Issue stock from inventory.
      *
-     * Example:
-     *
-     * 50 -> 47
-     *
-     * The movement is recorded as "sale".
+     * The supplied quantity is expressed in the selected
+     * transaction unit and converted to base units.
      */
     public function issue(
         Business $business,
@@ -143,23 +143,23 @@ class StockService
                 $unit
             );
 
-            $stock = $this->getOrCreateStock(
-                $business,
-                $product,
+            $baseQuantity = $this->quantityConverter->toBaseUnits(
+                $quantity,
                 $unit
             );
 
-            /*
-             * Lock the stock row before calculating the new
-             * quantity.
-             */
+            $stock = $this->getOrCreateStock(
+                $business,
+                $product
+            );
+
             $stock = Stock::query()
                 ->whereKey($stock->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             $before = (float) $stock->quantity;
-            $after = $before - $quantity;
+            $after = $before - $baseQuantity;
 
             if ($after < 0) {
                 throw ValidationException::withMessages([
@@ -178,6 +178,7 @@ class StockService
                 stock: $stock,
                 type: 'sale',
                 quantity: $quantity,
+                baseQuantity: -$baseQuantity,
                 quantityBefore: $before,
                 quantityAfter: $after,
                 note: $note,
@@ -191,16 +192,11 @@ class StockService
     /**
      * Manually adjust stock.
      *
-     * Positive quantity increases stock.
-     * Negative quantity decreases stock.
+     * Positive quantity increases inventory.
+     * Negative quantity decreases inventory.
      *
-     * Examples:
-     *
-     * +10:
-     * 50 -> 60
-     *
-     * -3:
-     * 50 -> 47
+     * The supplied quantity is expressed in the selected
+     * transaction unit.
      */
     public function adjust(
         Business $business,
@@ -230,23 +226,30 @@ class StockService
                 $unit
             );
 
+            $absoluteQuantity = abs($quantity);
+
+            $absoluteBaseQuantity = $this->quantityConverter
+                ->toBaseUnits(
+                    $absoluteQuantity,
+                    $unit
+                );
+
+            $baseQuantity = $quantity > 0
+                ? $absoluteBaseQuantity
+                : -$absoluteBaseQuantity;
+
             $stock = $this->getOrCreateStock(
                 $business,
-                $product,
-                $unit
+                $product
             );
 
-            /*
-             * Lock the stock row before calculating the
-             * adjustment.
-             */
             $stock = Stock::query()
                 ->whereKey($stock->id)
                 ->lockForUpdate()
                 ->firstOrFail();
 
             $before = (float) $stock->quantity;
-            $after = $before + $quantity;
+            $after = $before + $baseQuantity;
 
             if ($after < 0) {
                 throw ValidationException::withMessages([
@@ -265,6 +268,7 @@ class StockService
                 stock: $stock,
                 type: 'adjustment',
                 quantity: $quantity,
+                baseQuantity: $baseQuantity,
                 quantityBefore: $before,
                 quantityAfter: $after,
                 note: $note,
@@ -276,7 +280,10 @@ class StockService
     }
 
     /**
-     * Get the stock record for a product unit.
+     * Get the stock record for a product.
+     *
+     * The unit is only used to validate that the caller
+     * supplied a unit belonging to this product.
      */
     public function getStock(
         Business $business,
@@ -291,26 +298,23 @@ class StockService
 
         return $this->getOrCreateStock(
             $business,
-            $product,
-            $unit
+            $product
         );
     }
 
     /**
-     * Get or create the stock record for a product unit.
+     * Get or create the canonical stock record for a product.
      *
-     * This method intentionally does not create a movement.
+     * There is exactly one stock balance per product per business.
      */
     private function getOrCreateStock(
         Business $business,
-        Product $product,
-        ProductUnit $unit
+        Product $product
     ): Stock {
         return Stock::query()->firstOrCreate(
             [
                 'business_id' => $business->id,
                 'product_id' => $product->id,
-                'product_unit_id' => $unit->id,
             ],
             [
                 'quantity' => 0,
@@ -321,6 +325,12 @@ class StockService
 
     /**
      * Create an immutable stock movement record.
+     *
+     * quantity:
+     *     Quantity expressed in the transaction unit.
+     *
+     * base_quantity:
+     *     Actual inventory effect in canonical base units.
      */
     private function createMovement(
         Business $business,
@@ -329,6 +339,7 @@ class StockService
         Stock $stock,
         string $type,
         float $quantity,
+        float $baseQuantity,
         float $quantityBefore,
         float $quantityAfter,
         ?string $note,
@@ -341,6 +352,7 @@ class StockService
             'stock_id' => $stock->id,
             'type' => $type,
             'quantity' => $quantity,
+            'base_quantity' => $baseQuantity,
             'quantity_before' => $quantityBefore,
             'quantity_after' => $quantityAfter,
             'note' => $note,
@@ -348,10 +360,6 @@ class StockService
         ]);
     }
 
-    /**
-     * Make sure a quantity used for receiving or issuing
-     * stock is greater than zero.
-     */
     private function assertPositiveQuantity(float $quantity): void
     {
         if ($quantity <= 0) {
@@ -361,16 +369,9 @@ class StockService
         }
     }
 
-    /**
-     * Enforce tenant and product/unit ownership.
-     *
-     * A product, product unit and stock operation must all
-     * belong to the same business.
-     */
-    private function assertOwnership(
+    private function assertProductOwnership(
         Business $business,
-        Product $product,
-        ProductUnit $unit
+        Product $product
     ): void {
         if ($product->business_id !== $business->id) {
             abort(
@@ -378,6 +379,17 @@ class StockService
                 'Product does not belong to this business.'
             );
         }
+    }
+
+    private function assertOwnership(
+        Business $business,
+        Product $product,
+        ProductUnit $unit
+    ): void {
+        $this->assertProductOwnership(
+            $business,
+            $product
+        );
 
         if ($unit->business_id !== $business->id) {
             abort(

@@ -105,7 +105,7 @@ class InventoryApiTest extends TestCase
      * Create a business-scoped user with NO permissions.
      *
      * We insert the model_has_roles pivot explicitly so that
-     * team_id can never accidentally be NULL.
+     * team_id can never be NULL.
      */
     private function createRestrictedUser(Business $business): User
     {
@@ -272,10 +272,14 @@ class InventoryApiTest extends TestCase
 
         [$product, $unit] = $this->productWithBaseUnit($business);
 
+        /*
+         * Stock is now canonical at the product level.
+         *
+         * product_unit_id does NOT belong on stocks.
+         */
         Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 50,
             'reorder_level' => 10,
         ]);
@@ -295,7 +299,16 @@ class InventoryApiTest extends TestCase
 
         $response->assertJsonFragment([
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
+            'quantity' => '50.0000',
+        ]);
+
+        /*
+         * The stock response must not depend on a product_unit_id.
+         */
+        $this->assertDatabaseHas('stocks', [
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+            'quantity' => 50,
         ]);
     }
 
@@ -350,19 +363,26 @@ class InventoryApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
+        /*
+         * Stock quantity is stored in canonical base units.
+         */
         $this->assertDatabaseHas('stocks', [
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 50,
         ]);
 
+        /*
+         * The movement preserves the transaction unit and
+         * records the canonical inventory effect.
+         */
         $this->assertDatabaseHas('stock_movements', [
             'business_id' => $business->id,
             'product_id' => $product->id,
             'product_unit_id' => $unit->id,
             'type' => 'receive',
             'quantity' => 50,
+            'base_quantity' => 50,
             'quantity_before' => 0,
             'quantity_after' => 50,
         ]);
@@ -410,7 +430,7 @@ class InventoryApiTest extends TestCase
         $this->setPermissionTeam($business);
 
         /*
-         * First receive 50 units.
+         * First receive 50 base units.
          */
         $this
             ->actingAs($owner)
@@ -427,7 +447,7 @@ class InventoryApiTest extends TestCase
             ->assertOk();
 
         /*
-         * Then adjust by -5.
+         * Then adjust by -5 base units.
          */
         $response = $this
             ->actingAs($owner)
@@ -446,10 +466,12 @@ class InventoryApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
+        /*
+         * Stock remains product-level and is stored in base units.
+         */
         $this->assertDatabaseHas('stocks', [
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 45,
         ]);
 
@@ -462,6 +484,7 @@ class InventoryApiTest extends TestCase
             'product_unit_id' => $unit->id,
             'type' => 'adjustment',
             'quantity' => -5,
+            'base_quantity' => -5,
             'quantity_before' => 50,
             'quantity_after' => 45,
         ]);
@@ -531,10 +554,13 @@ class InventoryApiTest extends TestCase
 
         $response->assertForbidden();
 
+        /*
+         * No stock should be created for the foreign product
+         * inside the current business.
+         */
         $this->assertDatabaseMissing('stocks', [
             'business_id' => $business->id,
             'product_id' => $otherProduct->id,
-            'product_unit_id' => $otherUnit->id,
         ]);
     }
 
@@ -551,6 +577,10 @@ class InventoryApiTest extends TestCase
 
         $this->setPermissionTeam($business);
 
+        /*
+         * The product belongs to this business, but the selected
+         * product unit belongs to a different product.
+         */
         $response = $this
             ->actingAs($owner)
             ->withHeaders($this->businessHeaders($business))
@@ -565,7 +595,19 @@ class InventoryApiTest extends TestCase
 
         $response->assertForbidden();
 
+        /*
+         * No stock should be created for the attempted transaction.
+         */
         $this->assertDatabaseMissing('stocks', [
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+        ]);
+
+        /*
+         * And, importantly, no movement should have been created
+         * using the invalid unit/product combination.
+         */
+        $this->assertDatabaseMissing('stock_movements', [
             'business_id' => $business->id,
             'product_id' => $product->id,
             'product_unit_id' => $otherUnit->id,
@@ -644,10 +686,12 @@ class InventoryApiTest extends TestCase
 
         $this->setPermissionTeam($business);
 
+        /*
+         * Stock is now product-level.
+         */
         $stock = Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 50,
             'reorder_level' => 10,
         ]);
@@ -666,7 +710,7 @@ class InventoryApiTest extends TestCase
         $response->assertJsonFragment([
             'id' => $stock->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
+            'quantity' => '50.0000',
         ]);
     }
 
@@ -700,10 +744,12 @@ class InventoryApiTest extends TestCase
             )
             ->assertOk();
 
+        /*
+         * Stock is now uniquely identified by business + product.
+         */
         $stock = Stock::query()
             ->where('business_id', $business->id)
             ->where('product_id', $product->id)
-            ->where('product_unit_id', $unit->id)
             ->firstOrFail();
 
         $response = $this
@@ -717,9 +763,14 @@ class InventoryApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true);
 
+        /*
+         * The movement retains the transaction unit.
+         */
         $response->assertJsonFragment([
             'type' => 'receive',
             'quantity' => '50.0000',
+            'base_quantity' => '50.0000',
+            'product_unit_id' => $unit->id,
         ]);
     }
 }

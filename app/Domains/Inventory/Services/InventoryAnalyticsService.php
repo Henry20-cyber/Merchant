@@ -14,10 +14,6 @@ class InventoryAnalyticsService
     /**
      * Return the complete inventory analytics snapshot
      * for a business.
-     *
-     * @param  Business  $business
-     * @param  Carbon|null  $from
-     * @param  Carbon|null  $to
      */
     public function overview(
         Business $business,
@@ -26,28 +22,35 @@ class InventoryAnalyticsService
     ): array {
         return [
             'overview' => $this->overviewMetrics($business),
+
             'movement_summary' => $this->movementSummary(
                 $business,
                 $from,
                 $to
             ),
+
             'top_products' => $this->topSellingProducts(
                 $business,
                 $from,
                 $to
             ),
+
             'slow_products' => $this->slowMovingProducts(
                 $business,
                 $from,
                 $to
             ),
+
             'low_stock' => $this->lowStockProducts($business),
+
             'out_of_stock' => $this->outOfStockProducts($business),
         ];
     }
 
     /**
      * Current inventory overview.
+     *
+     * Stock quantity is stored in canonical base units.
      */
     public function overviewMetrics(Business $business): array
     {
@@ -90,8 +93,16 @@ class InventoryAnalyticsService
     /**
      * Summarize inventory movements.
      *
-     * "sale" represents stock issued through the current
-     * inventory engine.
+     * Receive:
+     *   quantity is positive.
+     *
+     * Sale:
+     *   quantity/base_quantity are negative in the stock ledger.
+     *
+     * Adjustment:
+     *   quantity/base_quantity may be positive or negative.
+     *
+     * For reporting, "sold" represents the absolute quantity sold.
      */
     public function movementSummary(
         Business $business,
@@ -105,15 +116,15 @@ class InventoryAnalyticsService
 
         $received = (clone $query)
             ->where('type', 'receive')
-            ->sum('quantity');
+            ->sum('base_quantity');
 
         $sold = (clone $query)
             ->where('type', 'sale')
-            ->sum('quantity');
+            ->sum(DB::raw('ABS(base_quantity)'));
 
         $adjusted = (clone $query)
             ->where('type', 'adjustment')
-            ->sum('quantity');
+            ->sum('base_quantity');
 
         return [
             'received' => (float) $received,
@@ -123,11 +134,12 @@ class InventoryAnalyticsService
     }
 
     /**
-     * Products with the highest quantity sold/issued.
+     * Products with the highest quantity sold.
      *
-     * This currently uses stock movements of type "sale".
-     * Once the Sales/POS domain exists, this metric should
-     * be migrated to the authoritative sales ledger.
+     * Sales are aggregated by product rather than by Stock.
+     *
+     * base_quantity is used because inventory analytics must
+     * operate in canonical base units.
      */
     public function topSellingProducts(
         Business $business,
@@ -136,11 +148,10 @@ class InventoryAnalyticsService
         int $limit = 10
     ): Collection {
         $query = StockMovement::query()
-            ->select([
-                'product_id',
-                'product_unit_id',
-            ])
-            ->selectRaw('SUM(quantity) as units_sold')
+            ->select('product_id')
+            ->selectRaw(
+                'SUM(ABS(base_quantity)) as units_sold'
+            )
             ->where('business_id', $business->id)
             ->where('type', 'sale');
 
@@ -149,12 +160,8 @@ class InventoryAnalyticsService
         return $query
             ->with([
                 'product:id,name,sku',
-                'productUnit:id,name',
             ])
-            ->groupBy(
-                'product_id',
-                'product_unit_id'
-            )
+            ->groupBy('product_id')
             ->orderByDesc('units_sold')
             ->limit($limit)
             ->get()
@@ -163,8 +170,6 @@ class InventoryAnalyticsService
                     'product_id' => $movement->product_id,
                     'product_name' => $movement->product?->name,
                     'sku' => $movement->product?->sku,
-                    'product_unit_id' => $movement->product_unit_id,
-                    'unit_name' => $movement->productUnit?->name,
                     'units_sold' => (float) $movement->units_sold,
                 ];
             })
@@ -184,50 +189,36 @@ class InventoryAnalyticsService
         int $limit = 10
     ): Collection {
         $salesQuery = StockMovement::query()
-            ->select([
-                'product_id',
-                'product_unit_id',
-            ])
-            ->selectRaw('SUM(quantity) as units_sold')
+            ->select('product_id')
+            ->selectRaw(
+                'SUM(ABS(base_quantity)) as units_sold'
+            )
             ->where('business_id', $business->id)
             ->where('type', 'sale');
 
         $this->applyDateRange($salesQuery, $from, $to);
 
         $sales = $salesQuery
-            ->groupBy(
-                'product_id',
-                'product_unit_id'
-            )
+            ->groupBy('product_id')
             ->get()
-            ->keyBy(function (StockMovement $movement): string {
-                return $movement->product_id
-                    .':'
-                    .$movement->product_unit_id;
-            });
+            ->keyBy('product_id');
 
         $stocks = Stock::query()
             ->where('business_id', $business->id)
             ->with([
                 'product:id,name,sku',
-                'productUnit:id,name',
             ])
             ->get();
 
         return $stocks
             ->map(function (Stock $stock) use ($sales): array {
-                $key = $stock->product_id
-                    .':'
-                    .$stock->product_unit_id;
-
-                $sale = $sales->get($key);
+                $sale = $sales->get($stock->product_id);
 
                 return [
+                    'stock_id' => $stock->id,
                     'product_id' => $stock->product_id,
                     'product_name' => $stock->product?->name,
                     'sku' => $stock->product?->sku,
-                    'product_unit_id' => $stock->product_unit_id,
-                    'unit_name' => $stock->productUnit?->name,
                     'units_sold' => (float) (
                         $sale?->units_sold ?? 0
                     ),
@@ -243,10 +234,7 @@ class InventoryAnalyticsService
     }
 
     /**
-     * Products that are below their configured reorder level.
-     *
-     * A reorder level of zero means that no low-stock threshold
-     * has been configured.
+     * Products below their configured reorder level.
      */
     public function lowStockProducts(
         Business $business
@@ -258,7 +246,6 @@ class InventoryAnalyticsService
             ->where('quantity', '>', 0)
             ->with([
                 'product:id,name,sku',
-                'productUnit:id,name',
             ])
             ->orderBy('quantity')
             ->get()
@@ -268,8 +255,6 @@ class InventoryAnalyticsService
                     'product_id' => $stock->product_id,
                     'product_name' => $stock->product?->name,
                     'sku' => $stock->product?->sku,
-                    'product_unit_id' => $stock->product_unit_id,
-                    'unit_name' => $stock->productUnit?->name,
                     'quantity' => (float) $stock->quantity,
                     'reorder_level' => (float) $stock->reorder_level,
                 ];
@@ -288,7 +273,6 @@ class InventoryAnalyticsService
             ->where('quantity', '<=', 0)
             ->with([
                 'product:id,name,sku',
-                'productUnit:id,name',
             ])
             ->orderBy('updated_at')
             ->get()
@@ -298,8 +282,6 @@ class InventoryAnalyticsService
                     'product_id' => $stock->product_id,
                     'product_name' => $stock->product?->name,
                     'sku' => $stock->product?->sku,
-                    'product_unit_id' => $stock->product_unit_id,
-                    'unit_name' => $stock->productUnit?->name,
                     'quantity' => (float) $stock->quantity,
                 ];
             })
@@ -307,7 +289,7 @@ class InventoryAnalyticsService
     }
 
     /**
-     * Apply an optional inclusive date range to a movement query.
+     * Apply an optional inclusive date range.
      */
     private function applyDateRange(
         $query,

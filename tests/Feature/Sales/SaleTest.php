@@ -50,6 +50,13 @@ class SaleTest extends TestCase
         return [$product, $unit];
     }
 
+    /**
+     * Create inventory for a product.
+     *
+     * Stock is stored in canonical base units.
+     *
+     * There is no product_unit_id column on stocks.
+     */
     private function createStock(
         Business $business,
         Product $product,
@@ -59,7 +66,6 @@ class SaleTest extends TestCase
         return Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => $quantity,
             'reorder_level' => 10,
         ]);
@@ -68,6 +74,7 @@ class SaleTest extends TestCase
     public function test_sale_belongs_to_business(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
         $sale = Sale::create([
@@ -82,12 +89,15 @@ class SaleTest extends TestCase
             'status' => 'completed',
         ]);
 
-        $this->assertTrue($sale->business->is($business));
+        $this->assertTrue(
+            $sale->business->is($business)
+        );
     }
 
     public function test_sale_belongs_to_cashier(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
         $sale = Sale::create([
@@ -102,12 +112,15 @@ class SaleTest extends TestCase
             'status' => 'completed',
         ]);
 
-        $this->assertTrue($sale->cashier->is($user));
+        $this->assertTrue(
+            $sale->cashier->is($user)
+        );
     }
 
     public function test_sale_can_have_multiple_items(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
         [$productA, $unitA] = $this->createProductWithUnit(
@@ -156,7 +169,10 @@ class SaleTest extends TestCase
             'total' => 250,
         ]);
 
-        $this->assertCount(2, $sale->fresh()->items);
+        $this->assertCount(
+            2,
+            $sale->fresh()->items
+        );
 
         $this->assertTrue(
             $sale->fresh()->items->contains(
@@ -174,9 +190,12 @@ class SaleTest extends TestCase
     public function test_sale_item_belongs_to_sale(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
-        [$product, $unit] = $this->createProductWithUnit($business);
+        [$product, $unit] = $this->createProductWithUnit(
+            $business
+        );
 
         $sale = Sale::create([
             'business_id' => $business->id,
@@ -201,15 +220,20 @@ class SaleTest extends TestCase
             'total' => 150,
         ]);
 
-        $this->assertTrue($item->sale->is($sale));
+        $this->assertTrue(
+            $item->sale->is($sale)
+        );
     }
 
     public function test_sale_item_references_correct_product_and_unit(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
-        [$product, $unit] = $this->createProductWithUnit($business);
+        [$product, $unit] = $this->createProductWithUnit(
+            $business
+        );
 
         $sale = Sale::create([
             'business_id' => $business->id,
@@ -234,13 +258,19 @@ class SaleTest extends TestCase
             'total' => 150,
         ]);
 
-        $this->assertTrue($item->product->is($product));
-        $this->assertTrue($item->productUnit->is($unit));
+        $this->assertTrue(
+            $item->product->is($product)
+        );
+
+        $this->assertTrue(
+            $item->productUnit->is($unit)
+        );
     }
 
     public function test_sale_item_preserves_historical_price_and_cost(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
         [$product, $unit] = $this->createProductWithUnit(
@@ -279,17 +309,28 @@ class SaleTest extends TestCase
 
         $item = $item->fresh();
 
-        $this->assertEquals('150.00', $item->unit_price);
-        $this->assertEquals('100.00', $item->unit_cost);
+        $this->assertEquals(
+            '150.00',
+            $item->unit_price
+        );
+
+        $this->assertEquals(
+            '100.00',
+            $item->unit_cost
+        );
     }
 
     public function test_product_and_unit_must_belong_to_same_business(): void
     {
         $businessA = $this->createBusiness();
+
         $businessB = $this->createBusiness();
 
-        [$productA, $unitA] = $this->createProductWithUnit($businessA);
-        [$productB, $unitB] = $this->createProductWithUnit($businessB);
+        [$productA, $unitA] =
+            $this->createProductWithUnit($businessA);
+
+        [$productB, $unitB] =
+            $this->createProductWithUnit($businessB);
 
         $this->assertNotEquals(
             $businessA->id,
@@ -306,7 +347,8 @@ class SaleTest extends TestCase
     {
         $business = $this->createBusiness();
 
-        [$product, $unit] = $this->createProductWithUnit($business);
+        [$product, $unit] =
+            $this->createProductWithUnit($business);
 
         $stock = $this->createStock(
             $business,
@@ -319,7 +361,6 @@ class SaleTest extends TestCase
             'id' => $stock->id,
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 50,
         ]);
     }
@@ -327,19 +368,22 @@ class SaleTest extends TestCase
     public function test_sale_total_can_be_calculated_from_items(): void
     {
         $business = $this->createBusiness();
+
         $user = $this->createUser();
 
-        [$productA, $unitA] = $this->createProductWithUnit(
-            $business,
-            100,
-            150
-        );
+        [$productA, $unitA] =
+            $this->createProductWithUnit(
+                $business,
+                100,
+                150
+            );
 
-        [$productB, $unitB] = $this->createProductWithUnit(
-            $business,
-            200,
-            250
-        );
+        [$productB, $unitB] =
+            $this->createProductWithUnit(
+                $business,
+                200,
+                250
+            );
 
         $sale = Sale::create([
             'business_id' => $business->id,
@@ -379,7 +423,10 @@ class SaleTest extends TestCase
             ->items
             ->sum('total');
 
-        $this->assertEquals(550, $itemsTotal);
+        $this->assertEquals(
+            550,
+            $itemsTotal
+        );
 
         $this->assertEquals(
             600,

@@ -5,6 +5,7 @@ namespace App\Domains\Sales\Services;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
+use App\Domains\Inventory\Services\InventoryQuantityConverter;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -20,34 +21,51 @@ use Illuminate\Validation\ValidationException;
 
 class SaleService
 {
-
     private UsageService $usageService;
+
     private PaymentService $paymentService;
+
     private ReceiptService $receiptService;
+
+    private InventoryQuantityConverter $quantityConverter;
+
     public function __construct(
         UsageService $usageService,
         PaymentService $paymentService,
-        ReceiptService $receiptService
+        ReceiptService $receiptService,
+        InventoryQuantityConverter $quantityConverter
     ) {
         $this->usageService = $usageService;
         $this->paymentService = $paymentService;
         $this->receiptService = $receiptService;
+        $this->quantityConverter = $quantityConverter;
     }
+
     /**
-     * Create a completed sale and process all items atomically.
+     * Create a sale and process all items atomically.
      *
-     * A sale item may be either:
+     * A sale item can be either:
      *
      * - a physical product
      * - a service
      *
-     * Product sales deduct inventory.
+     * Product sales affect inventory.
      * Service sales do not affect inventory.
      *
-     * @param Business $business
-     * @param User $cashier
-     * @param array<int, array<string, mixed>> $items
-     * @param array<string, mixed> $saleData
+     * Inventory is stored in canonical base units.
+     *
+     * Example:
+     *
+     * Product:
+     *   Piece = base unit, quantity 1
+     *   Pack  = quantity 12
+     *
+     * Selling 2 Packs means:
+     *
+     *   sale quantity = 2
+     *   base quantity = 24
+     *
+     * Stock is therefore reduced by 24.
      */
     public function create(
         Business $business,
@@ -67,28 +85,28 @@ class SaleService
             $items,
             $saleData
         ): Sale {
+            /*
+             * Consume the business transaction usage allowance.
+             */
             $this->usageService->consumeTransaction($business);
 
             $preparedItems = [];
+
             $subtotal = 0.0;
 
-
             /*
-|--------------------------------------------------------------------------
-| Customer
-|--------------------------------------------------------------------------
-|
-| Customers are optional because MerchantOS supports walk-in sales.
-|
-| When a customer is supplied, however, that customer must:
-|
-| - belong to the current business
-| - be active
-|
-| This prevents customer records from crossing tenant boundaries.
-|
-*/
-
+             * --------------------------------------------------------------
+             * CUSTOMER
+             * --------------------------------------------------------------
+             *
+             * Customer is optional because MerchantOS supports walk-in
+             * sales.
+             *
+             * If a customer is supplied:
+             *
+             * - customer must belong to this business
+             * - customer must be active
+             */
             $customer = null;
 
             $customerId = $saleData['customer_id'] ?? null;
@@ -102,21 +120,25 @@ class SaleService
                 if (! $customer) {
                     throw ValidationException::withMessages([
                         'customer_id' =>
-                        'Customer does not belong to this business.',
+                            'Customer does not belong to this business.',
                     ]);
                 }
 
                 if ($customer->status !== 'active') {
                     throw ValidationException::withMessages([
                         'customer_id' =>
-                        'This customer is not active.',
+                            'This customer is not active.',
                     ]);
                 }
             }
 
             /*
-             * Validate and prepare every item before
-             * changing inventory or creating the sale.
+             * --------------------------------------------------------------
+             * PREPARE ITEMS
+             * --------------------------------------------------------------
+             *
+             * Validate every item before creating the sale or changing
+             * inventory.
              */
             foreach ($items as $index => $item) {
                 $prepared = $this->prepareItem(
@@ -130,6 +152,11 @@ class SaleService
                 $subtotal += $prepared['total'];
             }
 
+            /*
+             * --------------------------------------------------------------
+             * SALE TOTALS
+             * --------------------------------------------------------------
+             */
             $discount = $this->money(
                 $saleData['discount'] ?? 0
             );
@@ -152,12 +179,18 @@ class SaleService
 
             if ($discount > $subtotal) {
                 throw ValidationException::withMessages([
-                    'discount' => 'Discount cannot exceed the subtotal.',
+                    'discount' =>
+                        'Discount cannot exceed the subtotal.',
                 ]);
             }
 
             $total = $subtotal - $discount + $tax;
 
+            /*
+             * --------------------------------------------------------------
+             * CREATE SALE
+             * --------------------------------------------------------------
+             */
             $sale = Sale::create([
                 'business_id' => $business->id,
                 'cashier_id' => $cashier->id,
@@ -171,6 +204,11 @@ class SaleService
                 'status' => $saleData['status'] ?? 'completed',
             ]);
 
+            /*
+             * --------------------------------------------------------------
+             * CREATE ITEMS + INVENTORY MOVEMENTS
+             * --------------------------------------------------------------
+             */
             foreach ($preparedItems as $prepared) {
                 $this->createItemAndMovement(
                     $sale,
@@ -180,18 +218,12 @@ class SaleService
             }
 
             /*
-|--------------------------------------------------------------------------
-| Payment
-|--------------------------------------------------------------------------
-|
-| A completed paid sale must have a corresponding payment record.
-|
-| PaymentService owns payment validation and overpayment protection.
-| Because this code is already inside the surrounding database
-| transaction, payment creation is atomic with the sale and inventory.
-|
-*/
-
+             * --------------------------------------------------------------
+             * PAYMENT
+             * --------------------------------------------------------------
+             *
+             * Only completed + paid sales create a paid payment record.
+             */
             if (
                 $sale->status === 'completed' &&
                 $sale->payment_status === 'paid'
@@ -207,30 +239,19 @@ class SaleService
                 );
 
                 /*
-     |--------------------------------------------------------------------------
-     | Receipt
-     |--------------------------------------------------------------------------
-     |
-     | A completed paid sale automatically receives its immutable
-     | customer-facing receipt.
-     |
-     | ReceiptService owns:
-     * - receipt validation
-     * - receipt numbering
-     * - historical snapshot creation
-     * - duplicate protection
-     *
-     * The same database transaction covers the sale, payment,
-     * inventory changes, and receipt.
-     |
-     */
-
+                 * ----------------------------------------------------------
+                 * RECEIPT
+                 * ----------------------------------------------------------
+                 */
                 $this->receiptService->issue(
                     $sale,
                     $cashier
                 );
             }
 
+            /*
+             * Return the complete sale with its relationships.
+             */
             return $sale->fresh([
                 'items.product',
                 'items.productUnit',
@@ -242,7 +263,7 @@ class SaleService
     }
 
     /**
-     * Validate and prepare one sale item.
+     * Validate and prepare a single sale item.
      *
      * A sale item must contain exactly one of:
      *
@@ -255,22 +276,27 @@ class SaleService
         int $index
     ): array {
         $productId = $item['product_id'] ?? null;
+
         $serviceId = $item['service_id'] ?? null;
 
         /*
-         * A sale item cannot represent both a product
-         * and a service, and cannot represent neither.
+         * An item cannot be both a product and service.
+         *
+         * It also cannot be neither.
          */
         if (
             ($productId && $serviceId) ||
-            (!$productId && !$serviceId)
+            (! $productId && ! $serviceId)
         ) {
             throw ValidationException::withMessages([
                 "items.$index" =>
-                'A sale item must contain either a product or a service.',
+                    'A sale item must contain either a product or a service.',
             ]);
         }
 
+        /*
+         * Quantity is required for both products and services.
+         */
         $quantity = $this->decimal(
             $item['quantity'] ?? null
         );
@@ -278,16 +304,15 @@ class SaleService
         if ($quantity === null || $quantity <= 0) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                'Quantity must be greater than zero.',
+                    'Quantity must be greater than zero.',
             ]);
         }
 
         /*
-         |--------------------------------------------------------------------------
-         | SERVICE SALE
-         |--------------------------------------------------------------------------
+         * --------------------------------------------------------------
+         * SERVICE
+         * --------------------------------------------------------------
          */
-
         if ($serviceId) {
             $service = Service::query()
                 ->where('id', $serviceId)
@@ -298,19 +323,20 @@ class SaleService
             if (! $service) {
                 throw ValidationException::withMessages([
                     "items.$index.service_id" =>
-                    'Service does not belong to this business.',
+                        'Service does not belong to this business.',
                 ]);
             }
 
             if (! $service->is_active) {
                 throw ValidationException::withMessages([
                     "items.$index.service_id" =>
-                    'This service is not active.',
+                        'This service is not active.',
                 ]);
             }
 
             /*
-             * Snapshot the current service price.
+             * Use supplied price when explicitly provided.
+             * Otherwise use catalog service price.
              */
             $unitPrice = $this->money(
                 $item['unit_price'] ?? $service->price
@@ -318,8 +344,6 @@ class SaleService
 
             /*
              * Services currently have no inventory cost.
-             * We still store unit_cost so historical
-             * profitability remains possible later.
              */
             $unitCost = $this->money(
                 $item['unit_cost'] ?? 0
@@ -332,21 +356,21 @@ class SaleService
             if ($unitPrice < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.unit_price" =>
-                    'Unit price cannot be negative.',
+                        'Unit price cannot be negative.',
                 ]);
             }
 
             if ($unitCost < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.unit_cost" =>
-                    'Unit cost cannot be negative.',
+                        'Unit cost cannot be negative.',
                 ]);
             }
 
             if ($discount < 0) {
                 throw ValidationException::withMessages([
                     "items.$index.discount" =>
-                    'Item discount cannot be negative.',
+                        'Item discount cannot be negative.',
                 ]);
             }
 
@@ -355,41 +379,68 @@ class SaleService
             if ($discount > $lineSubtotal) {
                 throw ValidationException::withMessages([
                     "items.$index.discount" =>
-                    'Item discount cannot exceed the item subtotal.',
+                        'Item discount cannot exceed the item subtotal.',
                 ]);
             }
 
+            $lineTotal = $lineSubtotal - $discount;
+
             return [
                 'type' => 'service',
+
                 'product' => null,
+
                 'unit' => null,
+
                 'stock' => null,
+
                 'service' => $service,
+
                 'quantity' => $quantity,
+
+                /*
+                 * Services do not have inventory conversion.
+                 */
+                'base_quantity' => null,
+
                 'unit_price' => $unitPrice,
+
                 'unit_cost' => $unitCost,
+
                 'discount' => $discount,
-                'total' => $lineSubtotal - $discount,
+
+                'total' => $lineTotal,
             ];
         }
 
         /*
-         |--------------------------------------------------------------------------
-         | PRODUCT SALE
-         |--------------------------------------------------------------------------
+         * --------------------------------------------------------------
+         * PRODUCT
+         * --------------------------------------------------------------
+         *
+         * Product sales require a specific product unit.
+         *
+         * Example:
+         *
+         * product = Coca Cola
+         * unit    = Pack
+         * quantity = 2
+         *
+         * If Pack.quantity = 12:
+         *
+         * base quantity = 2 × 12 = 24
          */
-
         $unitId = $item['product_unit_id'] ?? null;
 
         if (! $unitId) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                'Product unit is required.',
+                    'Product unit is required.',
             ]);
         }
 
         /*
-         * Lock the product to prevent concurrent modifications.
+         * Find the product within the current business.
          */
         $product = Product::query()
             ->where('id', $productId)
@@ -400,13 +451,17 @@ class SaleService
         if (! $product) {
             throw ValidationException::withMessages([
                 "items.$index.product_id" =>
-                'Product does not belong to this business.',
+                    'Product does not belong to this business.',
             ]);
         }
 
         /*
-         * The unit must belong to both the business
-         * and selected product.
+         * Find the selected unit.
+         *
+         * The unit must belong to:
+         *
+         * - the current business
+         * - the selected product
          */
         $unit = ProductUnit::query()
             ->where('id', $unitId)
@@ -418,48 +473,101 @@ class SaleService
         if (! $unit) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                'Product unit does not belong to the selected product.',
+                    'Product unit does not belong to the selected product.',
             ]);
         }
 
         if (! $unit->is_sellable) {
             throw ValidationException::withMessages([
                 "items.$index.product_unit_id" =>
-                'This product unit is not sellable.',
+                    'This product unit is not sellable.',
             ]);
         }
 
         /*
-         * Lock stock so concurrent sales cannot consume
-         * the same inventory.
+         * --------------------------------------------------------------
+         * CONVERT SALE QUANTITY TO BASE UNITS
+         * --------------------------------------------------------------
+         *
+         * This is the important inventory change.
+         *
+         * We no longer store stock separately for each ProductUnit.
+         *
+         * Stock stores one canonical quantity per product.
+         *
+         * Example:
+         *
+         * Piece:
+         *   quantity = 1
+         *
+         * Pack:
+         *   quantity = 12
+         *
+         * Sale:
+         *   2 Packs
+         *
+         * Base quantity:
+         *   2 × 12 = 24
+         */
+        $baseQuantity = $this->quantityConverter->toBaseUnits(
+            $quantity,
+            $unit
+        );
+
+        /*
+         * --------------------------------------------------------------
+         * STOCK
+         * --------------------------------------------------------------
+         *
+         * IMPORTANT:
+         *
+         * Do NOT query:
+         *
+         * ->where('product_unit_id', ...)
+         *
+         * because stocks no longer have product_unit_id.
+         *
+         * There is one stock record per business + product.
          */
         $stock = Stock::query()
             ->where('business_id', $business->id)
             ->where('product_id', $product->id)
-            ->where('product_unit_id', $unit->id)
             ->lockForUpdate()
             ->first();
 
         if (! $stock) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                'No inventory record exists for this product unit.',
+                    'No inventory record exists for this product.',
             ]);
         }
 
+        /*
+         * Stock quantity is stored in canonical base units.
+         */
         $available = (float) $stock->quantity;
 
-        if ($quantity > $available) {
+        if ($baseQuantity > $available) {
             throw ValidationException::withMessages([
                 "items.$index.quantity" =>
-                "Insufficient stock. Available quantity: {$available}.",
+                    "Insufficient stock. Available base quantity: {$available}.",
             ]);
         }
 
+        /*
+         * Price comes from the selected ProductUnit unless the
+         * client explicitly supplies a selling price.
+         */
         $unitPrice = $this->money(
             $item['unit_price'] ?? $unit->selling_price
         );
 
+        /*
+         * Cost always comes from the catalog unit.
+         *
+         * We intentionally ignore client-supplied unit_cost for
+         * physical products.
+         */
         $unitCost = $this->money(
             $unit->cost_price
         );
@@ -471,30 +579,35 @@ class SaleService
         if ($unitPrice < 0) {
             throw ValidationException::withMessages([
                 "items.$index.unit_price" =>
-                'Unit price cannot be negative.',
+                    'Unit price cannot be negative.',
             ]);
         }
 
         if ($unitCost < 0) {
             throw ValidationException::withMessages([
                 "items.$index.unit_cost" =>
-                'Unit cost cannot be negative.',
+                    'Unit cost cannot be negative.',
             ]);
         }
 
         if ($discount < 0) {
             throw ValidationException::withMessages([
                 "items.$index.discount" =>
-                'Item discount cannot be negative.',
+                    'Item discount cannot be negative.',
             ]);
         }
 
+        /*
+         * Calculate the commercial sale total.
+         *
+         * quantity remains in the selected selling unit.
+         */
         $lineSubtotal = $quantity * $unitPrice;
 
         if ($discount > $lineSubtotal) {
             throw ValidationException::withMessages([
                 "items.$index.discount" =>
-                'Item discount cannot exceed the item subtotal.',
+                    'Item discount cannot exceed the item subtotal.',
             ]);
         }
 
@@ -502,29 +615,44 @@ class SaleService
 
         return [
             'type' => 'product',
+
             'product' => $product,
+
             'unit' => $unit,
+
             'stock' => $stock,
+
             'service' => null,
+
+            /*
+             * Commercial quantity.
+             *
+             * Example:
+             * 2 Packs
+             */
             'quantity' => $quantity,
+
+            /*
+             * Inventory quantity.
+             *
+             * Example:
+             * 24 Pieces
+             */
+            'base_quantity' => $baseQuantity,
+
             'unit_price' => $unitPrice,
+
             'unit_cost' => $unitCost,
+
             'discount' => $discount,
+
             'total' => $lineTotal,
         ];
     }
 
     /**
-     * Create the SaleItem.
-     *
-     * Product:
-     * - creates SaleItem
-     * - deducts stock
-     * - creates stock movement
-     *
-     * Service:
-     * - creates SaleItem
-     * - does NOT touch inventory
+     * Create SaleItem and, for products, update stock and create
+     * a stock movement.
      */
     private function createItemAndMovement(
         Sale $sale,
@@ -532,79 +660,169 @@ class SaleService
         array $prepared
     ): SaleItem {
         /*
-         |--------------------------------------------------------------------------
-         | SERVICE
-         |--------------------------------------------------------------------------
+         * --------------------------------------------------------------
+         * SERVICE
+         * --------------------------------------------------------------
+         *
+         * Services do not affect inventory.
          */
-
         if ($prepared['type'] === 'service') {
             return SaleItem::create([
                 'sale_id' => $sale->id,
+
                 'product_id' => null,
+
                 'product_unit_id' => null,
+
                 'service_id' => $prepared['service']->id,
+
                 'quantity' => $prepared['quantity'],
+
                 'unit_price' => $prepared['unit_price'],
+
                 'unit_cost' => $prepared['unit_cost'],
+
                 'discount' => $prepared['discount'],
+
                 'total' => $prepared['total'],
             ]);
         }
 
         /*
-         |--------------------------------------------------------------------------
-         | PRODUCT
-         |--------------------------------------------------------------------------
+         * --------------------------------------------------------------
+         * PRODUCT
+         * --------------------------------------------------------------
          */
 
         /** @var Stock $stock */
         $stock = $prepared['stock'];
 
+        /*
+         * Commercial quantity.
+         *
+         * Example:
+         * 2 Packs
+         */
         $quantity = $prepared['quantity'];
 
-        $before = (float) $stock->quantity;
-        $after = $before - $quantity;
+        /*
+         * Canonical inventory quantity.
+         *
+         * Example:
+         * 24 Pieces
+         */
+        $baseQuantity = $prepared['base_quantity'];
 
+        /*
+         * Stock is always stored in base units.
+         */
+        $before = (float) $stock->quantity;
+
+        $after = $before - $baseQuantity;
+
+        /*
+         * Defensive check.
+         *
+         * prepareItem() already checked this, but keeping this
+         * check here protects the actual mutation.
+         */
         if ($after < 0) {
             throw ValidationException::withMessages([
                 'items' => 'Sale would make stock negative.',
             ]);
         }
 
+        /*
+         * --------------------------------------------------------------
+         * SALE ITEM
+         * --------------------------------------------------------------
+         *
+         * SaleItem preserves the unit in which the customer bought
+         * the product.
+         */
         $item = SaleItem::create([
             'sale_id' => $sale->id,
+
             'product_id' => $prepared['product']->id,
+
             'product_unit_id' => $prepared['unit']->id,
+
             'service_id' => null,
+
             'quantity' => $quantity,
+
             'unit_price' => $prepared['unit_price'],
+
             'unit_cost' => $prepared['unit_cost'],
+
             'discount' => $prepared['discount'],
+
             'total' => $prepared['total'],
         ]);
 
+        /*
+         * --------------------------------------------------------------
+         * UPDATE STOCK
+         * --------------------------------------------------------------
+         *
+         * Stock quantity is canonical base quantity.
+         */
         $stock->update([
             'quantity' => $after,
         ]);
 
+        /*
+         * --------------------------------------------------------------
+         * STOCK MOVEMENT
+         * --------------------------------------------------------------
+         *
+         * Keep both:
+         *
+         * quantity:
+         *   what was commercially sold
+         *
+         * base_quantity:
+         *   actual inventory impact
+         *
+         * Example:
+         *
+         * quantity      = -2 Packs
+         * base_quantity = -24 Pieces
+         */
         StockMovement::create([
             'business_id' => $sale->business_id,
+
             'product_id' => $prepared['product']->id,
+
             'product_unit_id' => $prepared['unit']->id,
+
             'stock_id' => $stock->id,
+
             'type' => 'sale',
+
             'quantity' => -$quantity,
+
+            'base_quantity' => -$baseQuantity,
+
             'quantity_before' => $before,
+
             'quantity_after' => $after,
+
             'reference_type' => Sale::class,
+
             'reference_id' => $sale->id,
+
             'note' => 'Sale',
+
             'created_by' => $cashier->id,
         ]);
 
         return $item;
     }
 
+    /**
+     * Convert a value to a positive decimal quantity.
+     */
     private function decimal(mixed $value): ?float
     {
         if ($value === null || $value === '') {
@@ -618,6 +836,9 @@ class SaleService
         return (float) $value;
     }
 
+    /**
+     * Convert a value to money with two decimal places.
+     */
     private function money(mixed $value): float
     {
         if ($value === null || $value === '') {

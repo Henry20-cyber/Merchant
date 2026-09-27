@@ -52,7 +52,6 @@ class InventoryAnalyticsTest extends TestCase
         return Stock::create([
             'business_id' => $business->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => $quantity,
             'reorder_level' => $reorderLevel,
         ]);
@@ -77,6 +76,13 @@ class InventoryAnalyticsTest extends TestCase
 ): StockMovement {
     $createdAt ??= now();
 
+    $baseQuantity = match ($type) {
+        'sale' => -abs($quantity),
+        'receive' => abs($quantity),
+        'adjustment' => $quantity,
+        default => $quantity,
+    };
+
     $movement = StockMovement::create([
         'business_id' => $business->id,
         'product_id' => $product->id,
@@ -84,6 +90,7 @@ class InventoryAnalyticsTest extends TestCase
         'stock_id' => $stock->id,
         'type' => $type,
         'quantity' => $quantity,
+        'base_quantity' => $baseQuantity,
         'quantity_before' => $quantityBefore,
         'quantity_after' => $quantityAfter,
         'reference_type' => null,
@@ -92,10 +99,6 @@ class InventoryAnalyticsTest extends TestCase
         'created_by' => null,
     ]);
 
-    /*
-     * created_at / updated_at are not in StockMovement::$fillable,
-     * so they must be assigned after creation.
-     */
     $movement->created_at = $createdAt;
     $movement->updated_at = $createdAt;
     $movement->save();
@@ -524,97 +527,97 @@ class InventoryAnalyticsTest extends TestCase
         );
     }
 
-   public function test_movement_summary_respects_date_range(): void
-{
-    $business = Business::factory()->create();
+    public function test_movement_summary_respects_date_range(): void
+    {
+        $business = Business::factory()->create();
 
-    [$product, $unit] = $this->createProductWithBaseUnit(
-        $business,
-        'Date Filter Product',
-        'DATE-001'
-    );
-
-    $stock = $this->createStock(
-        $business,
-        $product,
-        $unit,
-        100
-    );
-
-    // Outside the requested range.
-    $oldDate = Carbon::create(
-        2026,
-        8,
-        1,
-        12,
-        0,
-        0,
-        'Africa/Lagos'
-    );
-
-    // Inside the requested range.
-    $newDate = Carbon::create(
-        2026,
-        8,
-        20,
-        12,
-        0,
-        0,
-        'Africa/Lagos'
-    );
-
-    $this->createMovement(
-        $business,
-        $product,
-        $unit,
-        $stock,
-        'sale',
-        50,
-        150,
-        100,
-        $oldDate
-    );
-
-    $this->createMovement(
-        $business,
-        $product,
-        $unit,
-        $stock,
-        'sale',
-        20,
-        120,
-        100,
-        $newDate
-    );
-
-    $summary = app(InventoryAnalyticsService::class)
-        ->movementSummary(
+        [$product, $unit] = $this->createProductWithBaseUnit(
             $business,
-            Carbon::create(
-                2026,
-                8,
-                15,
-                0,
-                0,
-                0,
-                'Africa/Lagos'
-            ),
-            Carbon::create(
-                2026,
-                8,
-                23,
-                23,
-                59,
-                59,
-                'Africa/Lagos'
-            )
+            'Date Filter Product',
+            'DATE-001'
         );
 
-    $this->assertEquals(
-        20,
-        $summary['sold']
-    );
-}
+        $stock = $this->createStock(
+            $business,
+            $product,
+            $unit,
+            100
+        );
+
+        // Outside the requested range.
+        $oldDate = Carbon::create(
+            2026,
+            8,
+            1,
+            12,
+            0,
+            0,
+            'Africa/Lagos'
+        );
+
+        // Inside the requested range.
+        $newDate = Carbon::create(
+            2026,
+            8,
+            20,
+            12,
+            0,
+            0,
+            'Africa/Lagos'
+        );
+
+        $this->createMovement(
+            $business,
+            $product,
+            $unit,
+            $stock,
+            'sale',
+            50,
+            150,
+            100,
+            $oldDate
+        );
+
+        $this->createMovement(
+            $business,
+            $product,
+            $unit,
+            $stock,
+            'sale',
+            20,
+            120,
+            100,
+            $newDate
+        );
+
+        $summary = app(InventoryAnalyticsService::class)
+            ->movementSummary(
+                $business,
+                Carbon::create(
+                    2026,
+                    8,
+                    15,
+                    0,
+                    0,
+                    0,
+                    'Africa/Lagos'
+                ),
+                Carbon::create(
+                    2026,
+                    8,
+                    23,
+                    23,
+                    59,
+                    59,
+                    'Africa/Lagos'
+                )
+            );
+
+        $this->assertEquals(
+            20,
+            $summary['sold']
+        );
+    }
 
     public function test_empty_business_returns_zero_metrics(): void
     {

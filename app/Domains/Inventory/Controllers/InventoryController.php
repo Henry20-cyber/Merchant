@@ -27,10 +27,7 @@ class InventoryController
 
         $stocks = Stock::query()
             ->where('business_id', $business->id)
-            ->with([
-                'product',
-                'productUnit',
-            ])
+            ->with('product')
             ->orderBy('created_at')
             ->get();
 
@@ -54,10 +51,7 @@ class InventoryController
             $business
         );
 
-        $stock->load([
-            'product',
-            'productUnit',
-        ]);
+        $stock->load('product');
 
         return response()->json([
             'success' => true,
@@ -102,13 +96,6 @@ class InventoryController
             $validated['product_unit_id']
         );
 
-        /*
-         * IMPORTANT:
-         *
-         * StockService expects ?User.
-         * Pass the authenticated User object,
-         * NOT $request->user()->id.
-         */
         $stock = $this->stockService->receive(
             $business,
             $product,
@@ -118,10 +105,7 @@ class InventoryController
             $request->user()
         );
 
-        $stock->load([
-            'product',
-            'productUnit',
-        ]);
+        $stock->load('product');
 
         return response()->json([
             'success' => true,
@@ -178,10 +162,7 @@ class InventoryController
             $request->user()
         );
 
-        $stock->load([
-            'product',
-            'productUnit',
-        ]);
+        $stock->load('product');
 
         return response()->json([
             'success' => true,
@@ -204,6 +185,10 @@ class InventoryController
         );
 
         $movements = $stock->movements()
+            ->with([
+                'productUnit',
+                'creator',
+            ])
             ->orderByDesc('created_at')
             ->get();
 

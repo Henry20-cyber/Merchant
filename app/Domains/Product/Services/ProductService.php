@@ -7,6 +7,9 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class ProductService
@@ -33,13 +36,29 @@ class ProductService
                 );
             }
 
+            $imagePath = null;
+
+if (
+    isset($productData['image']) &&
+    $productData['image'] instanceof UploadedFile
+) {
+    $imagePath = $productData['image']->store(
+        'products/' . $business->id,
+        'public'
+    );
+}
+
+
             $product = Product::create([
                 'business_id' => $business->id,
                 'category_id' => $categoryId,
                 'name' => $productData['name'],
-                'sku' => $productData['sku'] ?? null,
+                'sku' => !empty($productData['sku'])
+                    ? trim($productData['sku'])
+                    : $this->generateSku($business),
                 'description' => $productData['description'] ?? null,
                 'status' => $productData['status'] ?? 'active',
+                'image_path' => $imagePath,
             ]);
 
             $this->createBaseUnit(
@@ -58,54 +77,85 @@ class ProductService
     /**
      * Update a product.
      */
-    public function updateProduct(
-        Product $product,
-        Business $business,
-        array $data
-    ): Product {
-        $this->assertProductBelongsToBusiness(
-            $product,
-            $business
-        );
+   public function updateProduct(
+    Product $product,
+    Business $business,
+    array $data
+): Product {
+    $this->assertProductBelongsToBusiness(
+        $product,
+        $business
+    );
 
-        return DB::transaction(function () use (
-            $product,
-            $business,
-            $data
+    return DB::transaction(function () use (
+        $product,
+        $business,
+        $data
+    ) {
+        if (
+            array_key_exists('category_id', $data)
+            && $data['category_id'] !== null
         ) {
-            if (
-                array_key_exists('category_id', $data)
-                && $data['category_id'] !== null
-            ) {
-                $this->assertCategoryBelongsToBusiness(
-                    $data['category_id'],
-                    $business
-                );
-            }
+            $this->assertCategoryBelongsToBusiness(
+                $data['category_id'],
+                $business
+            );
+        }
 
-            $allowed = [
-                'name',
-                'sku',
-                'description',
-                'status',
-                'category_id',
-            ];
+        $oldImagePath = $product->image_path;
+        $newImagePath = null;
 
-            $product->update(
-                array_intersect_key(
-                    $data,
-                    array_flip($allowed)
-                )
+        if (
+            isset($data['image']) &&
+            $data['image'] instanceof UploadedFile
+        ) {
+            $newImagePath = $data['image']->store(
+                'products/' . $business->id,
+                'public'
             );
 
-            return $product
-                ->refresh()
-                ->load([
-                    'units',
-                    'category',
-                ]);
-        });
-    }
+            $data['image_path'] = $newImagePath;
+            unset($data['image']);
+        }
+
+        $allowed = [
+            'name',
+            'sku',
+            'description',
+            'status',
+            'category_id',
+            'image_path',
+        ];
+
+        $product->update(
+            array_intersect_key(
+                $data,
+                array_flip($allowed)
+            )
+        );
+
+        /*
+         * Only remove the old image after the new image
+         * has been successfully stored and the model updated.
+         */
+        if (
+            $newImagePath !== null &&
+            $oldImagePath !== null
+        ) {
+            Storage::disk('public')->delete(
+                $oldImagePath
+            );
+        }
+
+        return $product
+            ->refresh()
+            ->load([
+                'units',
+                'category',
+            ]);
+    });
+}
+
 
     /**
      * Create the base unit for a product.
@@ -122,8 +172,8 @@ class ProductService
 
         if (
             $product->units()
-                ->where('is_base_unit', true)
-                ->exists()
+            ->where('is_base_unit', true)
+            ->exists()
         ) {
             throw ValidationException::withMessages([
                 'unit' => 'This product already has a base unit.',
@@ -135,7 +185,7 @@ class ProductService
         if ($quantity !== 1.0) {
             throw ValidationException::withMessages([
                 'quantity' =>
-                    'The base unit quantity must be exactly 1.',
+                'The base unit quantity must be exactly 1.',
             ]);
         }
 
@@ -172,7 +222,7 @@ class ProductService
         if ($quantity <= 1) {
             throw ValidationException::withMessages([
                 'quantity' =>
-                    'A non-base unit must contain more than 1 base unit.',
+                'A non-base unit must contain more than 1 base unit.',
             ]);
         }
 
@@ -183,7 +233,7 @@ class ProductService
         if ($exists) {
             throw ValidationException::withMessages([
                 'name' =>
-                    'This unit already exists for the product.',
+                'This unit already exists for the product.',
             ]);
         }
 
@@ -222,7 +272,7 @@ class ProductService
             ) {
                 throw ValidationException::withMessages([
                     'quantity' =>
-                        'The base unit quantity must remain exactly 1.',
+                    'The base unit quantity must remain exactly 1.',
                 ]);
             }
 
@@ -234,7 +284,7 @@ class ProductService
             ) {
                 throw ValidationException::withMessages([
                     'quantity' =>
-                        'A non-base unit must contain more than 1 base unit.',
+                    'A non-base unit must contain more than 1 base unit.',
                 ]);
             }
         }
@@ -242,14 +292,14 @@ class ProductService
         if (
             array_key_exists('name', $data)
             && $unit->product
-                ->units()
-                ->where('name', $data['name'])
-                ->whereKeyNot($unit->id)
-                ->exists()
+            ->units()
+            ->where('name', $data['name'])
+            ->whereKeyNot($unit->id)
+            ->exists()
         ) {
             throw ValidationException::withMessages([
                 'name' =>
-                    'This unit already exists for the product.',
+                'This unit already exists for the product.',
             ]);
         }
 
@@ -291,7 +341,7 @@ class ProductService
             if ((float) $unit->quantity !== 1.0) {
                 throw ValidationException::withMessages([
                     'quantity' =>
-                        'Only a unit with quantity 1 can become the base unit.',
+                    'Only a unit with quantity 1 can become the base unit.',
                 ]);
             }
 
@@ -342,7 +392,7 @@ class ProductService
         if ($product->business_id !== $business->id) {
             throw ValidationException::withMessages([
                 'business' =>
-                    'This product does not belong to this business.',
+                'This product does not belong to this business.',
             ]);
         }
     }
@@ -362,7 +412,7 @@ class ProductService
         if (! $exists) {
             throw ValidationException::withMessages([
                 'category_id' =>
-                    'The selected category does not belong to this business.',
+                'The selected category does not belong to this business.',
             ]);
         }
     }
@@ -377,15 +427,35 @@ class ProductService
         if ($unit->business_id !== $business->id) {
             throw ValidationException::withMessages([
                 'business' =>
-                    'This product unit does not belong to this business.',
+                'This product unit does not belong to this business.',
             ]);
         }
 
         if ($unit->product->business_id !== $business->id) {
             throw ValidationException::withMessages([
                 'business' =>
-                    'This product unit is attached to a different business.',
+                'This product unit is attached to a different business.',
             ]);
         }
+    }
+
+    private function generateSku(Business $business): string
+    {
+        do {
+            $sku = 'PRD-' . strtoupper(
+                substr(
+                    str_replace('-', '', (string) Str::uuid()),
+                    0,
+                    8
+                )
+            );
+        } while (
+            Product::query()
+            ->where('business_id', $business->id)
+            ->where('sku', $sku)
+            ->exists()
+        );
+
+        return $sku;
     }
 }

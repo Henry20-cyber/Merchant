@@ -23,6 +23,7 @@ class Service extends Model
         'category_id',
         'name',
         'description',
+        'image_path',
         'price',
         'is_active',
     ];
@@ -37,6 +38,17 @@ class Service extends Model
             'deleted_at' => 'datetime',
         ];
     }
+
+    protected $appends = [
+    'image_url',
+];
+
+public function getImageUrlAttribute(): ?string
+{
+    return $this->image_path
+        ? asset('storage/' . $this->image_path)
+        : null;
+}
 
     public function business(): BelongsTo
     {

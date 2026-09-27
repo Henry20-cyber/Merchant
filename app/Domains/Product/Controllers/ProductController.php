@@ -7,6 +7,7 @@ use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Product\Services\ProductService;
 use App\Domains\Catalog\Models\Category;
+use Illuminate\Validation\Rule;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -74,15 +75,22 @@ class ProductController extends Controller
 
         $validated = $request->validate([
             'name' => [
+                'sometimes',
                 'required',
                 'string',
                 'max:255',
             ],
 
             'sku' => [
-                'required',
+                'sometimes',
+                'nullable',
                 'string',
                 'max:255',
+                Rule::unique('products', 'sku')
+                    ->where(fn($query) => $query->where(
+                        'business_id',
+                        $business->id
+                    )),
             ],
 
             'description' => [
@@ -90,6 +98,13 @@ class ProductController extends Controller
                 'string',
             ],
 
+            'image' => [
+                'sometimes',
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
 
             'status' => [
                 'nullable',
@@ -98,6 +113,7 @@ class ProductController extends Controller
             ],
 
             'category_id' => [
+                'sometimes',
                 'nullable',
                 'uuid',
             ],
@@ -152,8 +168,9 @@ class ProductController extends Controller
             $business,
             [
                 'name' => $validated['name'],
-                'sku' => $validated['sku'],
+                'sku' => $validated['sku'] ?? null,
                 'description' => $validated['description'] ?? null,
+                'image' => $validated['image'] ?? null,
                 'status' => $validated['status'] ?? 'active',
                 'category_id' => $validated['category_id'] ?? null,
             ],
@@ -224,14 +241,28 @@ class ProductController extends Controller
 
             'sku' => [
                 'sometimes',
-                'required',
+                'nullable',
                 'string',
                 'max:255',
+                Rule::unique('products', 'sku')
+                    ->where(fn($query) => $query->where(
+                        'business_id',
+                        $business->id
+                    ))
+                    ->ignore($product->id),
             ],
 
             'description' => [
                 'nullable',
                 'string',
+            ],
+
+            'image' => [
+                'sometimes',
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
             ],
 
             'status' => [
