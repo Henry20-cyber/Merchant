@@ -32,6 +32,8 @@ class RoleService
                 'users.view',
                 'users.invite',
                 'users.update',
+                'users.remove',
+                'users.join_requests.review',
 
                 'roles.view',
                 'roles.create',
@@ -59,25 +61,24 @@ class RoleService
                 'categories.delete',
 
                 /*
-                  * Customers
-                  */
+                 * Customers
+                 */
                 'customers.view',
                 'customers.create',
                 'customers.update',
                 'customers.delete',
 
                 /*
-                  * Sales
-                  */
+                 * Sales
+                 */
                 'sales.view',
                 'sales.create',
                 'sales.update',
                 'sales.cancel',
 
-                /**
+                /*
                  * Receipts
-                 * */
-
+                 */
                 'receipts.view',
                 'receipts.create',
                 'receipts.print',
@@ -89,8 +90,6 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
-
-
             ],
 
             /*
@@ -105,6 +104,8 @@ class RoleService
                 'users.view',
                 'users.invite',
                 'users.update',
+                'users.remove',
+                'users.join_requests.review',
 
                 'roles.view',
 
@@ -130,18 +131,15 @@ class RoleService
                 'customers.create',
                 'customers.update',
 
-
                 /*
                  * Sales
                  */
                 'sales.view',
                 'sales.create',
 
-
-                /**
+                /*
                  * Receipts
-                 * */
-
+                 */
                 'receipts.view',
                 'receipts.create',
                 'receipts.print',
@@ -153,8 +151,6 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
-
-
             ],
 
             /*
@@ -184,11 +180,9 @@ class RoleService
                 'sales.view',
                 'sales.create',
 
-
-                /**
+                /*
                  * Receipts
-                 * */
-
+                 */
                 'receipts.view',
                 'receipts.create',
                 'receipts.print',
@@ -198,8 +192,6 @@ class RoleService
                  * but cannot modify it.
                  */
                 'inventory.view',
-
-
             ],
 
             /*
@@ -231,12 +223,10 @@ class RoleService
     public function provisionBusinessRoles(string $businessId): void
     {
         /*
-         * IMPORTANT:
-         *
          * Spatie Permission is configured with teams.
          *
-         * Any permission/role operation performed here must happen
-         * inside the business's permission context.
+         * Every permission/role operation must happen inside
+         * the correct business permission context.
          */
         setPermissionsTeamId($businessId);
 
@@ -277,7 +267,7 @@ class RoleService
             /*
              * Permissions themselves are global.
              *
-             * The business scope belongs to the role.
+             * Business scope belongs to the role.
              */
             $permissions = Permission::query()
                 ->where('guard_name', 'web')
@@ -294,18 +284,25 @@ class RoleService
         /*
          * Clear cached permission information after provisioning.
          */
-        app(\Spatie\Permission\PermissionRegistrar::class)
-            ->forgetCachedPermissions();
+        app(
+            \Spatie\Permission\PermissionRegistrar::class
+        )->forgetCachedPermissions();
 
         /*
-         * Re-establish the business context because cache clearing
-         * must not leave the registrar in an undefined state.
+         * Re-establish business context after clearing cache.
          */
         setPermissionsTeamId($businessId);
     }
 
     /**
-     * Assign a business-scoped role to an active member.
+     * Assign a non-Owner business-scoped role to an active member.
+     *
+     * IMPORTANT:
+     *
+     * This method is the normal employee role-management operation.
+     * It MUST NOT be used to assign or modify the Owner role.
+     *
+     * Owner assignment is handled exclusively by assignOwner().
      */
     public function assignRole(
         User $user,
@@ -313,17 +310,15 @@ class RoleService
         string $businessId
     ): Role {
         /*
-         * Establish the explicit business context.
-         *
-         * Do not depend on the HTTP/session business context here.
+         * Establish explicit business context.
          */
         setPermissionsTeamId($businessId);
 
         /*
          * Tenant boundary:
          *
-         * The target user must be an active member
-         * of the requested business.
+         * Target user must be an active member
+         * of this business.
          */
         $isMember = BusinessUser::query()
             ->where('business_id', $businessId)
@@ -339,7 +334,39 @@ class RoleService
         }
 
         /*
-         * Resolve the role strictly inside the requested business.
+         * Never allow the ordinary employee role endpoint
+         * to assign Owner.
+         */
+        if ($roleName === 'Owner') {
+            throw new HttpException(
+                403,
+                'The Owner role cannot be assigned through employee role management.'
+            );
+        }
+
+        /*
+         * Get the target user's current role in this business.
+         */
+        $currentRole = $this->getBusinessRole(
+            $user,
+            $businessId
+        );
+
+        /*
+         * Owner is a protected business-level role.
+         *
+         * Once a user is the Owner, the ordinary employee
+         * role-management endpoint cannot change that role.
+         */
+        if ($currentRole?->name === 'Owner') {
+            throw new HttpException(
+                403,
+                'The business Owner role cannot be changed.'
+            );
+        }
+
+        /*
+         * Resolve requested role strictly inside this business.
          */
         $role = Role::query()
             ->where('name', $roleName)
@@ -348,29 +375,96 @@ class RoleService
             ->firstOrFail();
 
         /*
-         * Explicitly assign the role with the correct team ID.
+         * A defensive second check.
          *
-         * We deliberately do not call $user->assignRole() here because
-         * the explicit business ID is the authoritative tenant boundary.
+         * Even though the request above rejects "Owner", we also
+         * protect the domain service from assigning an Owner role
+         * if this method is called directly from another code path.
          */
-        DB::table(
-            config('permission.table_names.model_has_roles')
-        )->updateOrInsert(
-            [
-                config('permission.column_names.model_morph_key')
-                => $user->getKey(),
+        if ($role->name === 'Owner') {
+            throw new HttpException(
+                403,
+                'The Owner role cannot be assigned through employee role management.'
+            );
+        }
 
-                'model_type'
-                => $user->getMorphClass(),
-
-                'role_id'
-                => $role->getKey(),
-
-                config('permission.column_names.team_foreign_key')
-                => $businessId,
-            ],
-            []
+        /*
+         * Replace the user's existing business role.
+         */
+        $this->replaceBusinessRole(
+            $user,
+            $role,
+            $businessId
         );
+
+        return $role;
+    }
+
+    /**
+     * Replace a user's business-scoped role.
+     *
+     * This is the low-level persistence operation.
+     *
+     * Owner protection is enforced by assignRole() for normal
+     * employee role management.
+     *
+     * assignOwner() intentionally calls this method directly
+     * because Owner assignment is a separate trusted operation.
+     */
+    private function replaceBusinessRole(
+        User $user,
+        Role $role,
+        string $businessId
+    ): void {
+        DB::transaction(function () use (
+            $user,
+            $role,
+            $businessId
+        ) {
+            $roleTable = config(
+                'permission.table_names.model_has_roles'
+            );
+
+            /*
+             * Remove all existing roles for this user
+             * inside this business.
+             */
+            DB::table($roleTable)
+                ->where(
+                    config(
+                        'permission.column_names.model_morph_key'
+                    ),
+                    $user->getKey()
+                )
+                ->where(
+                    'model_type',
+                    $user->getMorphClass()
+                )
+                ->where(
+                    config(
+                        'permission.column_names.team_foreign_key'
+                    ),
+                    $businessId
+                )
+                ->delete();
+
+            /*
+             * Assign exactly one business role.
+             */
+            DB::table($roleTable)->insert([
+                'role_id' => $role->getKey(),
+
+                config(
+                    'permission.column_names.model_morph_key'
+                ) => $user->getKey(),
+
+                'model_type' => $user->getMorphClass(),
+
+                config(
+                    'permission.column_names.team_foreign_key'
+                ) => $businessId,
+            ]);
+        });
 
         /*
          * Forget stale Eloquent relations.
@@ -381,38 +475,133 @@ class RoleService
         /*
          * Clear Spatie's permission cache.
          */
-        app(\Spatie\Permission\PermissionRegistrar::class)
-            ->forgetCachedPermissions();
+        app(
+            \Spatie\Permission\PermissionRegistrar::class
+        )->forgetCachedPermissions();
 
         /*
-         * IMPORTANT:
-         *
-         * Restore the correct team context after clearing cache.
+         * Restore the correct team context.
          */
         setPermissionsTeamId($businessId);
+    }
 
-        return $role;
+    /**
+     * Get the user's role inside a specific business.
+     */
+    public function getBusinessRole(
+        User $user,
+        string $businessId
+    ): ?Role {
+        setPermissionsTeamId($businessId);
+
+        $roleId = DB::table(
+            config('permission.table_names.model_has_roles')
+        )
+            ->where(
+                config(
+                    'permission.column_names.model_morph_key'
+                ),
+                $user->getKey()
+            )
+            ->where(
+                'model_type',
+                $user->getMorphClass()
+            )
+            ->where(
+                config(
+                    'permission.column_names.team_foreign_key'
+                ),
+                $businessId
+            )
+            ->value('role_id');
+
+        if (! $roleId) {
+            return null;
+        }
+
+        return Role::query()
+            ->whereKey($roleId)
+            ->where('guard_name', 'web')
+            ->where('team_id', $businessId)
+            ->first();
+    }
+
+    /**
+     * Get all effective permissions for a user
+     * inside a specific business.
+     */
+    public function getEffectivePermissions(
+        User $user,
+        string $businessId
+    ): array {
+        setPermissionsTeamId($businessId);
+
+        $isMember = BusinessUser::query()
+            ->where('business_id', $businessId)
+            ->where('user_id', $user->id)
+            ->where('status', 'active')
+            ->exists();
+
+        if (! $isMember) {
+            throw new HttpException(
+                403,
+                'User does not belong to this business.'
+            );
+        }
+
+        /*
+         * Forget potentially stale Eloquent permission relations.
+         */
+        $user->unsetRelation('roles');
+        $user->unsetRelation('permissions');
+
+        return $user->getAllPermissions()
+            ->pluck('name')
+            ->unique()
+            ->values()
+            ->all();
     }
 
     /**
      * Provision and assign the Owner role.
+     *
+     * This is the ONLY normal service operation that can
+     * establish the Owner role.
      */
     public function assignOwner(
         User $user,
         string $businessId
     ): Role {
         /*
-         * Explicitly establish tenant context before both
-         * provisioning and assignment.
+         * Establish tenant context.
          */
         setPermissionsTeamId($businessId);
 
+        /*
+         * Ensure standard roles exist and have their
+         * current permissions.
+         */
         $this->provisionBusinessRoles($businessId);
 
-        return $this->assignRole(
+        /*
+         * Resolve the Owner role explicitly.
+         */
+        $ownerRole = Role::query()
+            ->where('name', 'Owner')
+            ->where('guard_name', 'web')
+            ->where('team_id', $businessId)
+            ->firstOrFail();
+
+        /*
+         * Owner assignment is deliberately separate from
+         * ordinary employee role management.
+         */
+        $this->replaceBusinessRole(
             $user,
-            'Owner',
+            $ownerRole,
             $businessId
         );
+
+        return $ownerRole;
     }
 }

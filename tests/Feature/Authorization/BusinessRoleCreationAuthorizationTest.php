@@ -6,6 +6,8 @@ use App\Domains\Identity\Services\RoleService;
 use App\Domains\Identity\Support\PermissionCatalog;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
@@ -18,6 +20,8 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
     public function test_user_with_roles_create_permission_can_create_a_custom_role(): void
     {
         $business = Business::factory()->create();
+
+        $this->createAdvancedRbacSubscription($business);
 
         $user = $this->createBusinessMember($business);
 
@@ -33,9 +37,12 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
             $business->id
         );
 
-        $roleService->assignRole(
+        /*
+         * The Owner role must be established through the dedicated
+         * ownership method, not employee role management.
+         */
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $business->id
         );
 
@@ -73,6 +80,8 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $user = $this->createBusinessMember($business);
 
         $this->createPermissions();
@@ -87,6 +96,10 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
             $business->id
         );
 
+        /*
+         * Manager intentionally does not receive roles.create,
+         * so this request should be forbidden.
+         */
         $roleService->assignRole(
             $user,
             'Manager',
@@ -116,6 +129,9 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
         $businessA = Business::factory()->create();
         $businessB = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($businessA);
+        $this->createAdvancedRbacSubscription($businessB);
+
         $user = $this->createBusinessMember($businessA);
 
         $this->createPermissions();
@@ -130,14 +146,21 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
             $businessA->id
         );
 
-        $roleService->assignRole(
+        $roleService->provisionBusinessRoles(
+            $businessB->id
+        );
+
+        /*
+         * User belongs to Business A, so ownership is established
+         * through Business A only.
+         */
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $businessA->id
         );
 
         $response = $this->postJson(
-            "/api/businesses/current/roles",
+            '/api/businesses/current/roles',
             [
                 'name' => 'Cross Business Role',
                 'permissions' => [
@@ -146,6 +169,10 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
             ]
         );
 
+        /*
+         * The role is created in the authenticated user's current
+         * business (Business A), not Business B.
+         */
         $response->assertCreated();
 
         $this->assertDatabaseHas('roles', [
@@ -163,6 +190,8 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $user = $this->createBusinessMember($business);
 
         $this->createPermissions();
@@ -177,9 +206,8 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
             $business->id
         );
 
-        $roleService->assignRole(
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $business->id
         );
 
@@ -199,6 +227,26 @@ class BusinessRoleCreationAuthorizationTest extends TestCase
         $this->assertDatabaseMissing('roles', [
             'team_id' => $business->id,
             'name' => 'Invalid Role',
+        ]);
+    }
+
+    private function createAdvancedRbacSubscription(
+        Business $business
+    ): void {
+        $plan = SubscriptionPlan::factory()->create([
+            'features' => [
+                'advanced_rbac' => true,
+            ],
+            'is_active' => true,
+        ]);
+
+        Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
         ]);
     }
 

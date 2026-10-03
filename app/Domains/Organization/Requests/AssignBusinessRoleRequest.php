@@ -3,12 +3,18 @@
 namespace App\Domains\Organization\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 class AssignBusinessRoleRequest extends FormRequest
 {
     public function authorize(): bool
     {
+        /*
+         * Authorization is handled by the route permission:
+         *
+         * permission:roles.assign
+         *
+         * and by RoleService's domain-level invariants.
+         */
         return true;
     }
 
@@ -19,6 +25,21 @@ class AssignBusinessRoleRequest extends FormRequest
                 'required',
                 'string',
                 'max:100',
+
+                /*
+                 * Owner cannot be assigned through the
+                 * normal employee role-management endpoint.
+                 */
+                'not_in:Owner',
+            ],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'role.not_in' => [
+                'The Owner role cannot be assigned through employee role management.',
             ],
         ];
     }

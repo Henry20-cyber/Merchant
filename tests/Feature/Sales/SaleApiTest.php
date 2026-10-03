@@ -772,6 +772,200 @@ class SaleApiTest extends TestCase
         ]);
     }
 
+    public function test_owner_can_list_sales(): void
+{
+    [$business, $owner] =
+        $this->createBusinessWithOwner();
+
+    [$product, $unit] =
+        $this->createProductWithStock($business);
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->postJson(
+            '/api/businesses/current/sales',
+            $this->salePayload($product, $unit)
+        );
+
+    $response->assertCreated();
+
+    $saleId = $response->json('data.id');
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->getJson('/api/businesses/current/sales');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.data.0.id', $saleId);
+}
+
+public function test_owner_can_list_sale_items_with_product_and_unit(): void
+{
+    [$business, $owner] =
+        $this->createBusinessWithOwner();
+
+    [$product, $unit] =
+        $this->createProductWithStock($business);
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->postJson(
+            '/api/businesses/current/sales',
+            $this->salePayload($product, $unit, 2)
+        );
+
+    $response->assertCreated();
+
+    $saleId = $response->json('data.id');
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->getJson('/api/businesses/current/sales');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.data.0.id', $saleId)
+        ->assertJsonPath(
+            'data.data.0.items.0.product.id',
+            $product->id
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.product.name',
+            $product->name
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.product_unit.id',
+            $unit->id
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.product_unit.name',
+            $unit->name
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.quantity',
+            '2.0000'
+        );
+}
+
+public function test_owner_can_see_bulk_unit_conversion_in_sale(): void
+{
+    [$business, $owner] =
+        $this->createBusinessWithOwner();
+
+    [$product, $baseUnit] =
+        $this->createProductWithStock($business);
+
+    $packUnit = ProductUnit::factory()->create([
+        'business_id' => $business->id,
+        'product_id' => $product->id,
+        'name' => 'Pack',
+        'quantity' => 12,
+        'cost_price' => 1000,
+        'selling_price' => 1500,
+        'is_base_unit' => false,
+        'is_sellable' => true,
+        'is_purchasable' => true,
+    ]);
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->postJson(
+            '/api/businesses/current/sales',
+            [
+                'items' => [
+                    [
+                        'product_id' => $product->id,
+                        'product_unit_id' => $packUnit->id,
+                        'quantity' => 1,
+                    ],
+                ],
+            ]
+        );
+
+    $response->assertCreated();
+
+    $saleId = $response->json('data.id');
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->getJson('/api/businesses/current/sales');
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.data.0.id', $saleId)
+        ->assertJsonPath(
+            'data.data.0.items.0.product_unit.name',
+            'Pack'
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.product_unit.quantity',
+            '12.0000'
+        )
+        ->assertJsonPath(
+            'data.data.0.items.0.quantity',
+            '1.0000'
+        );
+}
+
+public function test_owner_can_view_sale(): void
+{
+    [$business, $owner] =
+        $this->createBusinessWithOwner();
+
+    [$product, $unit] =
+        $this->createProductWithStock($business);
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->postJson(
+            '/api/businesses/current/sales',
+            $this->salePayload($product, $unit)
+        );
+
+    $response->assertCreated();
+
+    $saleId = $response->json('data.id');
+
+    $response = $this
+        ->actingAs($owner)
+        ->withHeaders([
+            'X-Business-ID' => $business->id,
+        ])
+        ->getJson("/api/businesses/current/sales/{$saleId}");
+
+    $response
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('data.id', $saleId)
+        ->assertJsonPath('data.business_id', $business->id);
+}
+
+
     public function test_completed_paid_sale_automatically_creates_receipt(): void
 {
     [$business, $owner] =

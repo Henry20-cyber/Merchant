@@ -341,4 +341,52 @@ class SubscriptionCapabilityServiceTest extends TestCase
             ValidationException::class
         );
     }
+
+    public function test_large_plan_allows_advanced_rbac(): void
+{
+    $plan = SubscriptionPlan::factory()->create([
+        'features' => [
+            'advanced_rbac' => true,
+        ],
+        'is_active' => true,
+    ]);
+
+    $subscription = Subscription::factory()->create([
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now()->subDay(),
+        'current_period_start' => now()->subDay(),
+        'current_period_end' => now()->addMonth(),
+    ]);
+
+    $service = app(SubscriptionCapabilityService::class);
+
+    expect(
+        $service->allows($subscription, 'advanced_rbac')
+    )->toBeTrue();
+}
+
+public function test_non_large_plan_cannot_use_advanced_rbac(): void
+{
+    $plan = SubscriptionPlan::factory()->create([
+        'features' => [
+            'advanced_rbac' => false,
+        ],
+        'is_active' => true,
+    ]);
+
+    $subscription = Subscription::factory()->create([
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now()->subDay(),
+        'current_period_start' => now()->subDay(),
+        'current_period_end' => now()->addMonth(),
+    ]);
+
+    $service = app(SubscriptionCapabilityService::class);
+
+    expect(
+        $service->allows($subscription, 'advanced_rbac')
+    )->toBeFalse();
+}
 }

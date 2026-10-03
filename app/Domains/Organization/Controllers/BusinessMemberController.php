@@ -40,7 +40,10 @@ class BusinessMemberController
     }
 
     /**
-     * Assign a business-scoped role to a member.
+     * Assign a business-scoped non-Owner role to a member.
+     *
+     * The route middleware verifies roles.assign.
+     * RoleService enforces the Owner protection invariant.
      */
     public function assignRole(
         AssignBusinessRoleRequest $request,
@@ -72,6 +75,38 @@ class BusinessMemberController
                 'role' => $role->name,
                 'business_id' => $business->id,
             ],
+        ]);
+    }
+
+    /**
+     * Remove/deactivate a member from the current business.
+     */
+    public function removeMember(
+        Request $request,
+        User $user,
+        BusinessContextService $context,
+        BusinessMemberService $memberService
+    ): JsonResponse {
+        $business = $context->current($request->user());
+
+        if (! $business) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No active business selected.',
+                'data' => null,
+            ], 404);
+        }
+
+        $memberService->removeMember(
+            $business,
+            $user,
+            $request->user()
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Employee removed successfully.',
+            'data' => null,
         ]);
     }
 }

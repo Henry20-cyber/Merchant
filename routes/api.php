@@ -2,23 +2,36 @@
 
 use App\Domains\Identity\Controllers\AuthController;
 use App\Domains\Identity\Controllers\RoleController;
+use App\Domains\Identity\Controllers\EmployeeRegistrationController;
+
 use App\Domains\Product\Controllers\ProductController;
 use App\Domains\Inventory\Controllers\InventoryController;
+
 use App\Domains\Organization\Controllers\BusinessContextController;
 use App\Domains\Organization\Controllers\BusinessController;
 use App\Domains\Organization\Controllers\BusinessMemberController;
+use App\Domains\Organization\Controllers\BusinessJoinRequestController;
 use App\Domains\Organization\Controllers\BusinessTypeController;
+use App\Domains\Organization\Controllers\BranchController;
+
 use App\Domains\Subscription\Controllers\SubscriptionController;
 use App\Domains\Receipt\Controllers\ReceiptController;
 use App\Domains\Customer\Controllers\CustomerController;
+
 use App\Domains\Sales\Http\Controllers\SaleController;
+
 use App\Domains\Payment\Controllers\PaystackWebhookController;
-use App\Domains\Organization\Services\BusinessContextService;
-use App\Http\Middleware\DebugSession;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
+use App\Domains\Payment\Http\Controllers\OpayWebhookController;
+
 use App\Domains\Catalog\Controllers\CategoryController;
 use App\Domains\Service\Controllers\ServiceController;
+
+use App\Domains\Organization\Services\BusinessContextService;
+
+use App\Http\Middleware\DebugSession;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -31,19 +44,20 @@ Route::post('/auth/register', [
     'register',
 ]);
 
+Route::post('/auth/register-employee', [
+    EmployeeRegistrationController::class,
+    'register',
+]);
+
 Route::post('/auth/login', [
     AuthController::class,
     'login',
 ])->middleware('throttle:login');
 
-
 /*
 |--------------------------------------------------------------------------
 | Public Reference Data
 |--------------------------------------------------------------------------
-|
-| These endpoints are available before authentication.
-|
 */
 
 Route::get('/business-types', [
@@ -56,7 +70,6 @@ Route::get('/subscription-plans', [
     'plans',
 ]);
 
-
 /*
 |--------------------------------------------------------------------------
 | Authenticated API
@@ -64,8 +77,9 @@ Route::get('/subscription-plans', [
 |
 | MerchantOS uses Laravel Sanctum SPA authentication.
 |
-| `statefulApi()` is configured globally in bootstrap/app.php.
-| Do NOT add the `web` middleware to API routes.
+| statefulApi() is configured globally in bootstrap/app.php.
+|
+| Do NOT add the web middleware to API routes.
 |
 */
 
@@ -77,33 +91,10 @@ Route::middleware('auth:sanctum')->group(function () {
     |--------------------------------------------------------------------------
     */
 
-    Route::get('/auth/me', function (Request $request) {
-        $user = $request->user();
-
-        $business = app(BusinessContextService::class)
-            ->current($user);
-
-        return response()->json([
-            'success' => true,
-
-            'user' => [
-                'id' => $user->id,
-                'name' => $user->name,
-                'email' => $user->email,
-            ],
-
-            'business' => $business
-                ? [
-                    'id' => $business->id,
-                    'merchant_id' => $business->merchant_id,
-                    'name' => $business->name,
-                    'slug' => $business->slug,
-                    'status' => $business->status,
-                ]
-                : null,
-        ]);
-    })->middleware('business.context');
-
+    Route::get('/auth/me', [
+        AuthController::class,
+        'me',
+    ])->middleware('business.context');
 
     /*
     |--------------------------------------------------------------------------
@@ -115,7 +106,6 @@ Route::middleware('auth:sanctum')->group(function () {
         AuthController::class,
         'logout',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -134,7 +124,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'store',
     ]);
 
-
     /*
     |--------------------------------------------------------------------------
     | Current Business
@@ -149,7 +138,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'current',
     ])->middleware('business.context');
 
-
     /*
     |--------------------------------------------------------------------------
     | Specific Business
@@ -161,7 +149,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'show',
     ]);
 
-
     Route::put('/businesses/{business}', [
         BusinessController::class,
         'update',
@@ -169,7 +156,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:business.update',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -181,7 +167,6 @@ Route::middleware('auth:sanctum')->group(function () {
         BusinessContextController::class,
         'set',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -197,36 +182,147 @@ Route::middleware('auth:sanctum')->group(function () {
         'current',
     ])->middleware('business.context');
 
-
     Route::post('/business/current/clear', [
         BusinessContextController::class,
         'clear',
     ])->middleware('business.context');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Employee Join Requests
+    |--------------------------------------------------------------------------
+    |
+    | Employee submits a request to join a business using its Merchant ID.
+    |
+    | IMPORTANT:
+    | This route intentionally does NOT use business.context because
+    | the employee is not a member of the business yet.
+    |
+    */
+
+    Route::post('/businesses/join-requests', [
+        BusinessJoinRequestController::class,
+        'store',
+    ]);
 
     /*
     |--------------------------------------------------------------------------
-    | Business Members
+    | Business Join Request Management
     |--------------------------------------------------------------------------
+    |
+    | Only users with users.join_requests.review permission can manage
+    | pending employee join requests.
+    |
+    | Owner + Manager receive this permission.
+    |
     */
 
-    Route::get('/businesses/current/members', [
-        BusinessMemberController::class,
+    Route::middleware([
+        'business.context',
+        'permission:users.join_requests.review',
+    ])->group(function () {
+
+        Route::get(
+            '/businesses/current/join-requests',
+            [
+                BusinessJoinRequestController::class,
+                'index',
+            ]
+        );
+
+        Route::post(
+            '/businesses/current/join-requests/{joinRequest}/approve',
+            [
+                BusinessJoinRequestController::class,
+                'approve',
+            ]
+        );
+
+        Route::post(
+            '/businesses/current/join-requests/{joinRequest}/reject',
+            [
+                BusinessJoinRequestController::class,
+                'reject',
+            ]
+        );
+    });
+
+  /*
+|--------------------------------------------------------------------------
+| Business Members
+|--------------------------------------------------------------------------
+*/
+
+Route::get('/businesses/current/members', [
+    BusinessMemberController::class,
+    'index',
+])->middleware('permission:users.view');
+
+
+/*
+|--------------------------------------------------------------------------
+| Assign Member Role
+|--------------------------------------------------------------------------
+*/
+
+Route::put('/businesses/current/members/{user}/role', [
+    BusinessMemberController::class,
+    'assignRole',
+])->middleware('permission:roles.assign');
+
+
+/*
+|--------------------------------------------------------------------------
+| Remove Business Member
+|--------------------------------------------------------------------------
+*/
+
+Route::delete('/businesses/current/members/{user}', [
+    BusinessMemberController::class,
+    'removeMember',
+]);
+
+    /*
+    |--------------------------------------------------------------------------
+    | Branch Management
+    |--------------------------------------------------------------------------
+    |
+    | Branches are always scoped to the authenticated user's current
+    | business through business.context.
+    |
+    | Current branch permissions:
+    | - branches.view
+    | - branches.create
+    | - branches.update
+    |
+    | There is intentionally no DELETE route because the permission
+    | catalog currently has no branches.delete permission.
+    |
+    */
+
+    Route::get('/businesses/current/branches', [
+        BranchController::class,
         'index',
     ])->middleware([
         'business.context',
-        'permission:users.view',
+        'permission:branches.view',
     ]);
 
-
-    Route::put('/businesses/current/members/{user}/role', [
-        BusinessMemberController::class,
-        'assignRole',
+    Route::post('/businesses/current/branches', [
+        BranchController::class,
+        'store',
     ])->middleware([
         'business.context',
-        'permission:roles.assign',
+        'permission:branches.create',
     ]);
 
+    Route::put('/businesses/current/branches/{branch}', [
+        BranchController::class,
+        'update',
+    ])->middleware([
+        'business.context',
+        'permission:branches.update',
+    ]);
 
     /*
     |--------------------------------------------------------------------------
@@ -240,8 +336,8 @@ Route::middleware('auth:sanctum')->group(function () {
     ])->middleware([
         'business.context',
         'permission:roles.view',
+        'subscription.capability:advanced_rbac',
     ]);
-
 
     Route::post('/businesses/current/roles', [
         RoleController::class,
@@ -249,8 +345,8 @@ Route::middleware('auth:sanctum')->group(function () {
     ])->middleware([
         'business.context',
         'permission:roles.create',
+        'subscription.capability:advanced_rbac',
     ]);
-
 
     Route::put('/businesses/current/roles/{role}', [
         RoleController::class,
@@ -258,8 +354,8 @@ Route::middleware('auth:sanctum')->group(function () {
     ])->middleware([
         'business.context',
         'permission:roles.update',
+        'subscription.capability:advanced_rbac',
     ]);
-
 
     Route::delete('/businesses/current/roles/{role}', [
         RoleController::class,
@@ -267,8 +363,8 @@ Route::middleware('auth:sanctum')->group(function () {
     ])->middleware([
         'business.context',
         'permission:roles.delete',
+        'subscription.capability:advanced_rbac',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -284,7 +380,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.view',
     ]);
 
-
     Route::post('/businesses/current/products', [
         ProductController::class,
         'store',
@@ -292,7 +387,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:products.create',
     ]);
-
 
     Route::get('/businesses/current/products/{product}', [
         ProductController::class,
@@ -302,7 +396,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.view',
     ]);
 
-
     Route::put('/businesses/current/products/{product}', [
         ProductController::class,
         'update',
@@ -311,7 +404,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.update',
     ]);
 
-
     Route::delete('/businesses/current/products/{product}', [
         ProductController::class,
         'destroy',
@@ -319,7 +411,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:products.delete',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -338,7 +429,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.update',
     ]);
 
-
     Route::put(
         '/businesses/current/products/{product}/units/{unit}',
         [
@@ -349,7 +439,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:products.update',
     ]);
-
 
     Route::post(
         '/businesses/current/products/{product}/units/{unit}/base',
@@ -362,7 +451,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.update',
     ]);
 
-
     Route::delete(
         '/businesses/current/products/{product}/units/{unit}',
         [
@@ -373,7 +461,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:products.update',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -389,7 +476,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:customers.view',
     ]);
 
-
     Route::post('/businesses/current/customers', [
         CustomerController::class,
         'store',
@@ -397,7 +483,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:customers.create',
     ]);
-
 
     Route::get('/businesses/current/customers/{customer}', [
         CustomerController::class,
@@ -407,7 +492,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:customers.view',
     ]);
 
-
     Route::put('/businesses/current/customers/{customer}', [
         CustomerController::class,
         'update',
@@ -416,7 +500,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:customers.update',
     ]);
 
-
     Route::delete('/businesses/current/customers/{customer}', [
         CustomerController::class,
         'destroy',
@@ -424,7 +507,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:customers.delete',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -440,7 +522,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:inventory.view',
     ]);
 
-
     Route::get('/businesses/current/inventory/{stock}', [
         InventoryController::class,
         'show',
@@ -448,7 +529,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:inventory.view',
     ]);
-
 
     Route::post('/businesses/current/inventory/receive', [
         InventoryController::class,
@@ -458,7 +538,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:inventory.receive',
     ]);
 
-
     Route::post('/businesses/current/inventory/adjust', [
         InventoryController::class,
         'adjust',
@@ -466,7 +545,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:inventory.adjust',
     ]);
-
 
     Route::get('/businesses/current/inventory/{stock}/movements', [
         InventoryController::class,
@@ -476,30 +554,62 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:inventory.view',
     ]);
 
-
     /*
     |--------------------------------------------------------------------------
     | Sales
     |--------------------------------------------------------------------------
+    |
+    | Already inside auth:sanctum.
+    | business.context is applied to this group.
+    |
     */
 
-    Route::get('/businesses/current/sales/dashboard', [
-        SaleController::class,
-        'dashboard',
-    ])->middleware([
-        'business.context',
-        'permission:sales.view',
-    ]);
+    Route::middleware('business.context')->group(function () {
 
+        /*
+        |--------------------------------------------------------------------------
+        | Sales Dashboard
+        |--------------------------------------------------------------------------
+        */
 
-    Route::post('/businesses/current/sales', [
-        SaleController::class,
-        'store',
-    ])->middleware([
-        'business.context',
-        'permission:sales.create',
-    ]);
+        Route::get('/businesses/current/sales/dashboard', [
+            SaleController::class,
+            'dashboard',
+        ])->middleware('permission:sales.view');
 
+        /*
+        |--------------------------------------------------------------------------
+        | Sales History
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/businesses/current/sales', [
+            SaleController::class,
+            'index',
+        ])->middleware('permission:sales.view');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Sale Details
+        |--------------------------------------------------------------------------
+        */
+
+        Route::get('/businesses/current/sales/{sale}', [
+            SaleController::class,
+            'show',
+        ])->middleware('permission:sales.view');
+
+        /*
+        |--------------------------------------------------------------------------
+        | Create Sale
+        |--------------------------------------------------------------------------
+        */
+
+        Route::post('/businesses/current/sales', [
+            SaleController::class,
+            'store',
+        ])->middleware('permission:sales.create');
+    });
 
     /*
     |--------------------------------------------------------------------------
@@ -515,7 +625,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:receipts.view',
     ]);
 
-
     Route::get('/businesses/current/receipts/{receipt}', [
         ReceiptController::class,
         'show',
@@ -523,7 +632,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:receipts.view',
     ]);
-
 
     Route::get('/businesses/current/receipts/{receipt}/print', [
         ReceiptController::class,
@@ -533,7 +641,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:receipts.print',
     ]);
 
-
     Route::get('/businesses/current/receipts/{receipt}/pdf', [
         ReceiptController::class,
         'pdf',
@@ -541,7 +648,6 @@ Route::middleware('auth:sanctum')->group(function () {
         'business.context',
         'permission:receipts.print',
     ]);
-
 
     /*
     |--------------------------------------------------------------------------
@@ -554,105 +660,102 @@ Route::middleware('auth:sanctum')->group(function () {
         'current',
     ])->middleware('business.context');
 
-
     Route::post('/businesses/current/subscription/checkout', [
         SubscriptionController::class,
         'checkout',
     ])->middleware('business.context');
 
+    /*
+    |--------------------------------------------------------------------------
+    | Catalog Categories
+    |--------------------------------------------------------------------------
+    */
+
+    Route::get('/businesses/current/catalog/categories', [
+        CategoryController::class,
+        'index',
+    ])->middleware([
+        'business.context',
+        'permission:categories.view',
+    ]);
+
+    Route::post('/businesses/current/catalog/categories', [
+        CategoryController::class,
+        'store',
+    ])->middleware([
+        'business.context',
+        'permission:categories.create',
+    ]);
+
+    Route::get('/businesses/current/catalog/categories/{category}', [
+        CategoryController::class,
+        'show',
+    ])->middleware([
+        'business.context',
+        'permission:categories.view',
+    ]);
+
+    Route::put('/businesses/current/catalog/categories/{category}', [
+        CategoryController::class,
+        'update',
+    ])->middleware([
+        'business.context',
+        'permission:categories.update',
+    ]);
+
+    Route::delete('/businesses/current/catalog/categories/{category}', [
+        CategoryController::class,
+        'destroy',
+    ])->middleware([
+        'business.context',
+        'permission:categories.delete',
+    ]);
 
     /*
-|--------------------------------------------------------------------------
-| Catalog Categories
-|--------------------------------------------------------------------------
-*/
+    |--------------------------------------------------------------------------
+    | Service Management
+    |--------------------------------------------------------------------------
+    */
 
-Route::get('/businesses/current/catalog/categories', [
-    CategoryController::class,
-    'index',
-])->middleware([
-    'business.context',
-    'permission:categories.view',
-]);
+    Route::get('/businesses/current/services', [
+        ServiceController::class,
+        'index',
+    ])->middleware([
+        'business.context',
+        'permission:services.view',
+    ]);
 
-Route::post('/businesses/current/catalog/categories', [
-    CategoryController::class,
-    'store',
-])->middleware([
-    'business.context',
-    'permission:categories.create',
-]);
+    Route::post('/businesses/current/services', [
+        ServiceController::class,
+        'store',
+    ])->middleware([
+        'business.context',
+        'permission:services.create',
+    ]);
 
-Route::get('/businesses/current/catalog/categories/{category}', [
-    CategoryController::class,
-    'show',
-])->middleware([
-    'business.context',
-    'permission:categories.view',
-]);
+    Route::get('/businesses/current/services/{service}', [
+        ServiceController::class,
+        'show',
+    ])->middleware([
+        'business.context',
+        'permission:services.view',
+    ]);
 
-Route::put('/businesses/current/catalog/categories/{category}', [
-    CategoryController::class,
-    'update',
-])->middleware([
-    'business.context',
-    'permission:categories.update',
-]);
+    Route::put('/businesses/current/services/{service}', [
+        ServiceController::class,
+        'update',
+    ])->middleware([
+        'business.context',
+        'permission:services.update',
+    ]);
 
-Route::delete('/businesses/current/catalog/categories/{category}', [
-    CategoryController::class,
-    'destroy',
-])->middleware([
-    'business.context',
-    'permission:categories.delete',
-]);
-
-
-/*
-|--------------------------------------------------------------------------
-| Service Management
-|--------------------------------------------------------------------------
-*/
-
-Route::get('/businesses/current/services', [
-    ServiceController::class,
-    'index',
-])->middleware([
-    'business.context',
-    'permission:services.view',
-]);
-
-Route::post('/businesses/current/services', [
-    ServiceController::class,
-    'store',
-])->middleware([
-    'business.context',
-    'permission:services.create',
-]);
-
-Route::get('/businesses/current/services/{service}', [
-    ServiceController::class,
-    'show',
-])->middleware([
-    'business.context',
-    'permission:services.view',
-]);
-
-Route::put('/businesses/current/services/{service}', [
-    ServiceController::class,
-    'update',
-])->middleware([
-    'business.context',
-    'permission:services.update',
-]);
-
-Route::delete('/businesses/current/services/{service}', [
-    ServiceController::class,
-    'destroy',
-])->middleware([
-    'business.context',
-    'permission:services.delete',
-]);
+    Route::delete('/businesses/current/services/{service}', [
+        ServiceController::class,
+        'destroy',
+    ])->middleware([
+        'business.context',
+        'permission:services.delete',
+    ]);
 
     /*
     |--------------------------------------------------------------------------
@@ -664,6 +767,7 @@ Route::delete('/businesses/current/services/{service}', [
     */
 
     Route::get('/debug/auth-context', function (Request $request) {
+
         return response()->json([
             'authenticated' => $request->user() !== null,
             'user_id' => $request->user()?->id,
@@ -672,7 +776,6 @@ Route::delete('/businesses/current/services/{service}', [
         ]);
     });
 });
-
 
 /*
 |--------------------------------------------------------------------------
@@ -686,21 +789,21 @@ Route::delete('/businesses/current/services/{service}', [
 
 Route::middleware(DebugSession::class)
     ->get('/debug/csrf-session', function (Request $request) {
+
         return response()->json([
             'session_id' => $request->session()->getId(),
             'csrf_token' => $request->session()->token(),
         ]);
     });
 
-
 Route::post('/debug/ping', function (Request $request) {
+
     return response()->json([
         'received' => true,
         'method' => $request->method(),
         'has_session' => $request->hasSession(),
     ]);
 });
-
 
 /*
 |--------------------------------------------------------------------------
@@ -714,5 +817,16 @@ Route::post('/debug/ping', function (Request $request) {
 
 Route::post('/webhooks/paystack', [
     PaystackWebhookController::class,
+    'handle',
+]);
+
+/*
+|--------------------------------------------------------------------------
+| OPay Webhook
+|--------------------------------------------------------------------------
+*/
+
+Route::post('/webhooks/opay', [
+    OpayWebhookController::class,
     'handle',
 ]);

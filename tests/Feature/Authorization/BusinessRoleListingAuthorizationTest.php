@@ -7,6 +7,8 @@ use App\Domains\Identity\Support\PermissionCatalog;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Models\User;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Tests\TestCase;
@@ -18,6 +20,8 @@ class BusinessRoleListingAuthorizationTest extends TestCase
     public function test_user_with_roles_view_permission_can_view_business_roles(): void
     {
         $business = Business::factory()->create();
+
+        $this->createAdvancedRbacSubscription($business);
 
         $user = $this->createBusinessMember($business);
 
@@ -60,6 +64,8 @@ class BusinessRoleListingAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $user = $this->createBusinessMember($business);
 
         $this->createPermissions();
@@ -79,6 +85,9 @@ class BusinessRoleListingAuthorizationTest extends TestCase
     {
         $businessA = Business::factory()->create();
         $businessB = Business::factory()->create();
+
+        $this->createAdvancedRbacSubscription($businessA);
+        $this->createAdvancedRbacSubscription($businessB);
 
         $user = $this->createBusinessMember($businessA);
 
@@ -119,6 +128,26 @@ class BusinessRoleListingAuthorizationTest extends TestCase
             'business_id' => $businessB->id,
         ]);
     }
+
+    private function createAdvancedRbacSubscription(
+    Business $business
+): void {
+    $plan = SubscriptionPlan::factory()->create([
+        'features' => [
+            'advanced_rbac' => true,
+        ],
+        'is_active' => true,
+    ]);
+
+    Subscription::factory()->create([
+        'business_id' => $business->id,
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now()->subDay(),
+        'current_period_start' => now()->subDay(),
+        'current_period_end' => now()->addMonth(),
+    ]);
+}
 
     private function createBusinessMember(
         Business $business

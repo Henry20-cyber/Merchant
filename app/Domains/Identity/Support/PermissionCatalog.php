@@ -15,6 +15,8 @@ class PermissionCatalog
             'users.view',
             'users.invite',
             'users.update',
+            'users.remove',
+            'users.join_requests.review',
 
             // Roles
             'roles.view',

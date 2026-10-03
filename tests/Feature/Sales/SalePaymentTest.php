@@ -287,4 +287,80 @@ private function createSubscriptionFor(
       $payment->business_id
     );
   }
+
+  public function test_pending_bank_transfer_creates_pending_payment_without_receipt(): void
+{
+    [$business, $owner] =
+      $this->createBusinessWithOwner();
+
+    [$product, $unit] =
+      $this->createProductWithStock($business);
+
+    $response = $this
+      ->actingAs($owner)
+      ->withHeaders([
+        'X-Business-ID' => $business->id,
+      ])
+      ->postJson('/api/businesses/current/sales', [
+        'items' => [
+          [
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+          ],
+        ],
+        'payment_method' => 'bank_transfer',
+        'payment_status' => 'pending',
+        'status' => 'completed',
+      ]);
+
+    $response->assertCreated();
+
+    $sale = Sale::query()->latest()->first();
+
+    $this->assertNotNull($sale);
+
+    $this->assertSame(
+      'bank_transfer',
+      $sale->payment_method
+    );
+
+    $this->assertSame(
+      'pending',
+      $sale->payment_status
+    );
+
+    $this->assertSame(
+      'completed',
+      $sale->status
+    );
+
+    $payment = Payment::query()
+      ->where('sale_id', $sale->id)
+      ->first();
+
+    $this->assertNotNull($payment);
+
+    $this->assertSame(
+      'bank_transfer',
+      $payment->method
+    );
+
+    $this->assertSame(
+      'pending',
+      $payment->status
+    );
+
+    $this->assertNull(
+      $payment->paid_at
+    );
+
+    $this->assertDatabaseMissing(
+      'receipts',
+      [
+        'sale_id' => $sale->id,
+      ]
+    );
 }
+}
+

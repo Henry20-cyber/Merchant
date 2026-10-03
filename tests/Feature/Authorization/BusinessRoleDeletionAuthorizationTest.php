@@ -7,6 +7,8 @@ use App\Domains\Identity\Support\PermissionCatalog;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Models\User;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
@@ -19,6 +21,8 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
     public function test_authorized_user_can_delete_unused_custom_role(): void
     {
         $business = Business::factory()->create();
+
+        $this->createAdvancedRbacSubscription($business);
 
         $user = $this->createBusinessMember($business);
 
@@ -34,9 +38,12 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             $business->id
         );
 
-        $roleService->assignRole(
+        /*
+         * Owner is a protected role.
+         * Ownership must be established through assignOwner().
+         */
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $business->id
         );
 
@@ -66,6 +73,8 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $user = $this->createBusinessMember($business);
 
         $this->createPermissions();
@@ -80,6 +89,10 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             $business->id
         );
 
+        /*
+         * Manager is an ordinary employee role and therefore
+         * should continue to use assignRole().
+         */
         $roleService->assignRole(
             $user,
             'Manager',
@@ -108,6 +121,8 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $user = $this->createBusinessMember($business);
 
         $this->createPermissions();
@@ -122,9 +137,12 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             $business->id
         );
 
-        $roleService->assignRole(
+        /*
+         * Owner is protected and must be assigned through
+         * assignOwner(), not assignRole().
+         */
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $business->id
         );
 
@@ -151,6 +169,9 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
         $businessA = Business::factory()->create();
         $businessB = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($businessA);
+        $this->createAdvancedRbacSubscription($businessB);
+
         $user = $this->createBusinessMember($businessA);
 
         $this->createPermissions();
@@ -169,9 +190,12 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             $businessB->id
         );
 
-        $roleService->assignRole(
+        /*
+         * Owner is protected and must be assigned through
+         * assignOwner().
+         */
+        $roleService->assignOwner(
             $user,
-            'Owner',
             $businessA->id
         );
 
@@ -197,6 +221,8 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
     {
         $business = Business::factory()->create();
 
+        $this->createAdvancedRbacSubscription($business);
+
         $owner = $this->createBusinessMember($business);
         $assignedUser = $this->createBusinessMember($business);
 
@@ -212,9 +238,12 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             $business->id
         );
 
-        $roleService->assignRole(
+        /*
+         * Owner is protected and must be assigned through
+         * assignOwner().
+         */
+        $roleService->assignOwner(
             $owner,
-            'Owner',
             $business->id
         );
 
@@ -225,6 +254,10 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
             'is_system' => false,
         ]);
 
+        /*
+         * Sales Assistant is a custom employee role, so it
+         * correctly uses assignRole().
+         */
         $roleService->assignRole(
             $assignedUser,
             'Sales Assistant',
@@ -244,6 +277,26 @@ class BusinessRoleDeletionAuthorizationTest extends TestCase
         $this->assertDatabaseHas('roles', [
             'id' => $customRole->id,
             'name' => 'Sales Assistant',
+        ]);
+    }
+
+    private function createAdvancedRbacSubscription(
+        Business $business
+    ): void {
+        $plan = SubscriptionPlan::factory()->create([
+            'features' => [
+                'advanced_rbac' => true,
+            ],
+            'is_active' => true,
+        ]);
+
+        Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'starts_at' => now()->subDay(),
+            'current_period_start' => now()->subDay(),
+            'current_period_end' => now()->addMonth(),
         ]);
     }
 
