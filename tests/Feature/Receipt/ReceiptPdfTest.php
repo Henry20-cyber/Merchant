@@ -9,12 +9,14 @@ use App\Domains\Receipt\Models\Receipt;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class ReceiptPdfTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesSubscriptionForBusiness; 
 
     protected function setUp(): void
     {
@@ -25,7 +27,11 @@ class ReceiptPdfTest extends TestCase
 
     private function createBusinessWithOwner(): array
     {
-        $business = Business::factory()->create();
+         $business = $this->createBusinessWithSubscription([
+        'features' => [
+            'receipts' => true,
+        ],
+    ]);
 
         $owner = User::factory()->create();
 

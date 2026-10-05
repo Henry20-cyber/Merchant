@@ -9,12 +9,14 @@ use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class ReceiptPrintTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesSubscriptionForBusiness;
 
     protected function setUp(): void
     {
@@ -31,7 +33,11 @@ class ReceiptPrintTest extends TestCase
      */
     private function createBusinessWithOwner(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription([
+            'features' => [
+                'receipts' => true,
+            ],
+        ]);
 
         $user = User::factory()->create();
 
@@ -309,7 +315,11 @@ class ReceiptPrintTest extends TestCase
 
     public function test_user_without_receipt_permission_cannot_print(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription([
+            'features' => [
+                'receipts' => true,
+            ],
+        ]);
 
         $user = User::factory()->create();
 

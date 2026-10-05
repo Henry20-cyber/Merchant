@@ -10,9 +10,12 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class ProductApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -27,7 +30,7 @@ class ProductApiTest extends TestCase
      */
     private function ownerWithBusiness(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = User::factory()->create();
 
@@ -157,7 +160,7 @@ class ProductApiTest extends TestCase
     {
         [$owner, $business] = $this->ownerWithBusiness();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         /*
          * The request is intentionally operating inside
@@ -281,7 +284,7 @@ public function test_product_cannot_use_category_from_another_business(): void
 {
     [, $business] = $this->ownerWithBusiness();
 
-    $otherBusiness = Business::factory()->create();
+    $otherBusiness = $this->createBusinessWithSubscription();
 
     $category = \App\Domains\Catalog\Models\Category::create([
         'business_id' => $otherBusiness->id,

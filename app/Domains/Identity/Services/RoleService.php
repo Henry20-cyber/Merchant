@@ -90,6 +90,11 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
+
+                'expenses.view',
+                'expenses.create',
+                'expenses.update',
+                'expenses.delete',
             ],
 
             /*
@@ -151,6 +156,10 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
+
+                'expenses.view',
+                'expenses.create',
+                'expenses.update',
             ],
 
             /*

@@ -14,9 +14,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class InventoryApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -205,7 +208,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_has_inventory_permissions(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -266,7 +269,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_view_inventory(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -314,7 +317,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_view_permission_cannot_view_inventory(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -338,7 +341,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_receive_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -390,7 +393,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_receive_permission_cannot_receive_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -421,7 +424,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_adjust_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -492,7 +495,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_adjust_permission_cannot_adjust_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -529,9 +532,9 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_cannot_access_product_from_another_business(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -566,7 +569,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_rejects_unit_from_another_product(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -622,7 +625,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_rejects_zero_quantity(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -647,7 +650,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_rejects_negative_receive_quantity(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -678,7 +681,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_stock_detail_can_be_viewed(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -722,7 +725,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_movement_history_can_be_viewed(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 

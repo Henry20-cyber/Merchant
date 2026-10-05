@@ -13,9 +13,12 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class BusinessJoinRequestServiceTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -36,7 +39,9 @@ class BusinessJoinRequestServiceTest extends TestCase
     {
         $owner = $this->createUser();
 
-        $business = Business::factory()->create([
+        $business = $this->createBusinessWithSubscription();
+        
+        $business->update([
             'merchant_id' => 'MCH-' . strtoupper(str()->random(6)),
         ]);
 
@@ -56,26 +61,26 @@ class BusinessJoinRequestServiceTest extends TestCase
     }
 
     private function addMemberWithRole(
-    Business $business,
-    string $roleName,
-): User {
-    $user = $this->createUser();
+        Business $business,
+        string $roleName,
+    ): User {
+        $user = $this->createUser();
 
-    BusinessUser::create([
-        'business_id' => $business->id,
-        'user_id' => $user->id,
-        'status' => 'active',
-        'joined_at' => now(),
-    ]);
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $user->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
 
-    app(RoleService::class)->assignRole(
-        $user,
-        $roleName,
-        $business->id
-    );
+        app(RoleService::class)->assignRole(
+            $user,
+            $roleName,
+            $business->id
+        );
 
-    return $user;
-}
+        return $user;
+    }
 
 
     public function test_user_can_submit_join_request_using_merchant_id(): void
@@ -263,17 +268,53 @@ class BusinessJoinRequestServiceTest extends TestCase
 
         $this->assertTrue(
             $pending->contains(
-                fn (BusinessJoinRequest $request) =>
-                    $request->user_id === $employeeOne->id
+                fn(BusinessJoinRequest $request) =>
+                $request->user_id === $employeeOne->id
             )
         );
 
         $this->assertTrue(
             $pending->contains(
-                fn (BusinessJoinRequest $request) =>
-                    $request->user_id === $employeeTwo->id
+                fn(BusinessJoinRequest $request) =>
+                $request->user_id === $employeeTwo->id
             )
         );
+    }
+
+    public function test_approval_is_blocked_when_user_limit_is_reached(): void
+    {
+        [$business, $owner] = $this->createBusinessOwner();
+
+        $business->subscription->plan->update([
+            'user_limit' => 1,
+        ]);
+
+        $employee = $this->createUser();
+
+        $request = app(BusinessJoinRequestService::class)->submit(
+            $employee,
+            $business->merchant_id,
+        );
+
+        $managerRole = Role::query()
+            ->where('name', 'Manager')
+            ->where('team_id', $business->id)
+            ->firstOrFail();
+
+        $this->expectException(ValidationException::class);
+
+        app(BusinessJoinRequestService::class)->approve(
+            $request,
+            $owner,
+            $managerRole->id,
+            $business,
+        );
+
+        $this->assertDatabaseMissing('business_user', [
+            'business_id' => $business->id,
+            'user_id' => $employee->id,
+            'status' => 'active',
+        ]);
     }
 
     public function test_approved_join_request_creates_active_membership_and_assigns_role(): void
@@ -497,123 +538,123 @@ class BusinessJoinRequestServiceTest extends TestCase
     }
 
     public function test_manager_can_approve_join_request(): void
-{
-    [$business, $owner] = $this->createBusinessOwner();
+    {
+        [$business, $owner] = $this->createBusinessOwner();
 
-    $manager = $this->addMemberWithRole($business, 'Manager');
-    $employee = $this->createUser();
+        $manager = $this->addMemberWithRole($business, 'Manager');
+        $employee = $this->createUser();
 
-    $service = app(BusinessJoinRequestService::class);
+        $service = app(BusinessJoinRequestService::class);
 
-    $request = $service->submit(
-        $employee,
-        $business->merchant_id
-    );
+        $request = $service->submit(
+            $employee,
+            $business->merchant_id
+        );
 
-    $cashierRole = Role::query()
-        ->where('name', 'Cashier')
-        ->where('team_id', $business->id)
-        ->firstOrFail();
+        $cashierRole = Role::query()
+            ->where('name', 'Cashier')
+            ->where('team_id', $business->id)
+            ->firstOrFail();
 
-    $approved = $service->approve(
-        $request,
-        $manager,
-        $cashierRole->id,
-        $business
-    );
+        $approved = $service->approve(
+            $request,
+            $manager,
+            $cashierRole->id,
+            $business
+        );
 
-    $this->assertEquals('approved', $approved->status);
+        $this->assertEquals('approved', $approved->status);
 
-    $this->assertDatabaseHas('business_user', [
-        'business_id' => $business->id,
-        'user_id' => $employee->id,
-        'status' => 'active',
-    ]);
-}
+        $this->assertDatabaseHas('business_user', [
+            'business_id' => $business->id,
+            'user_id' => $employee->id,
+            'status' => 'active',
+        ]);
+    }
 
-public function test_manager_can_reject_join_request(): void
-{
-    [$business, $owner] = $this->createBusinessOwner();
+    public function test_manager_can_reject_join_request(): void
+    {
+        [$business, $owner] = $this->createBusinessOwner();
 
-    $manager = $this->addMemberWithRole($business, 'Manager');
-    $employee = $this->createUser();
+        $manager = $this->addMemberWithRole($business, 'Manager');
+        $employee = $this->createUser();
 
-    $service = app(BusinessJoinRequestService::class);
+        $service = app(BusinessJoinRequestService::class);
 
-    $request = $service->submit(
-        $employee,
-        $business->merchant_id
-    );
+        $request = $service->submit(
+            $employee,
+            $business->merchant_id
+        );
 
-    $rejected = $service->reject(
-        $request,
-        $manager,
-        $business,
-        'Application rejected.'
-    );
+        $rejected = $service->reject(
+            $request,
+            $manager,
+            $business,
+            'Application rejected.'
+        );
 
-    $this->assertEquals('rejected', $rejected->status);
+        $this->assertEquals('rejected', $rejected->status);
 
-    $this->assertEquals(
-        $manager->id,
-        $rejected->reviewed_by
-    );
-}
+        $this->assertEquals(
+            $manager->id,
+            $rejected->reviewed_by
+        );
+    }
 
-public function test_cashier_cannot_approve_join_request(): void
-{
-    [$business, $owner] = $this->createBusinessOwner();
+    public function test_cashier_cannot_approve_join_request(): void
+    {
+        [$business, $owner] = $this->createBusinessOwner();
 
-    $cashier = $this->addMemberWithRole($business, 'Cashier');
-    $employee = $this->createUser();
+        $cashier = $this->addMemberWithRole($business, 'Cashier');
+        $employee = $this->createUser();
 
-    $service = app(BusinessJoinRequestService::class);
+        $service = app(BusinessJoinRequestService::class);
 
-    $request = $service->submit(
-        $employee,
-        $business->merchant_id
-    );
+        $request = $service->submit(
+            $employee,
+            $business->merchant_id
+        );
 
-    $cashierRole = Role::query()
-        ->where('name', 'Cashier')
-        ->where('team_id', $business->id)
-        ->firstOrFail();
+        $cashierRole = Role::query()
+            ->where('name', 'Cashier')
+            ->where('team_id', $business->id)
+            ->firstOrFail();
 
-    $this->expectException(
-        \Symfony\Component\HttpKernel\Exception\HttpException::class
-    );
+        $this->expectException(
+            \Symfony\Component\HttpKernel\Exception\HttpException::class
+        );
 
-    $service->approve(
-        $request,
-        $cashier,
-        $cashierRole->id,
-        $business
-    );
-}
+        $service->approve(
+            $request,
+            $cashier,
+            $cashierRole->id,
+            $business
+        );
+    }
 
-public function test_cashier_cannot_reject_join_request(): void
-{
-    [$business, $owner] = $this->createBusinessOwner();
+    public function test_cashier_cannot_reject_join_request(): void
+    {
+        [$business, $owner] = $this->createBusinessOwner();
 
-    $cashier = $this->addMemberWithRole($business, 'Cashier');
-    $employee = $this->createUser();
+        $cashier = $this->addMemberWithRole($business, 'Cashier');
+        $employee = $this->createUser();
 
-    $service = app(BusinessJoinRequestService::class);
+        $service = app(BusinessJoinRequestService::class);
 
-    $request = $service->submit(
-        $employee,
-        $business->merchant_id
-    );
+        $request = $service->submit(
+            $employee,
+            $business->merchant_id
+        );
 
-    $this->expectException(
-        \Symfony\Component\HttpKernel\Exception\HttpException::class
-    );
+        $this->expectException(
+            \Symfony\Component\HttpKernel\Exception\HttpException::class
+        );
 
-    $service->reject(
-        $request,
-        $cashier,
-        $business,
-        'Not authorized.'
-    );
-}
+        $service->reject(
+            $request,
+            $cashier,
+            $business,
+            'Not authorized.'
+        );
+    }
 }

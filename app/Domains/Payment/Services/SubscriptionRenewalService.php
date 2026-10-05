@@ -225,6 +225,8 @@ class SubscriptionRenewalService
 
                 'ended_at' =>
                     null,
+
+                'auto_renew' => true,
             ])->save();
 
             return $payment->refresh();

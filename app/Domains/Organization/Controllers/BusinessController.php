@@ -58,6 +58,11 @@ class BusinessController extends Controller
                 'merchant_id' => $business->merchant_id,
                 'name' => $business->name,
                 'slug' => $business->slug,
+                'phone' => $business->phone,
+                'email' => $business->email,
+                'address' => $business->address,
+                'city' => $business->city,
+                'state' => $business->state,
                 'status' => $business->status,
             ],
         ]);

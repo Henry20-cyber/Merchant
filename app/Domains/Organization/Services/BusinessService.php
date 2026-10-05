@@ -49,6 +49,10 @@ class BusinessService
 
             'phone' => $data['phone'],
 
+            'address' => $data['address'] ?? null,
+            'city' => $data['city'] ?? null,
+            'state' => $data['state'] ?? null,
+
             'email' => $data['email'] ?? null,
 
             'website' => $data['website'] ?? null,
@@ -189,6 +193,19 @@ public function updateForUser(
         ->firstOrFail();
 
     $business->update($data);
+
+    if (array_intersect(array_keys($data), ['phone', 'email', 'address', 'city', 'state'])) {
+        $headOffice = $business->branches()->where('is_head_office', true)->first();
+        if ($headOffice) {
+            $headOffice->update([
+                'phone' => $business->phone,
+                'email' => $business->email,
+                'address' => $business->address,
+                'city' => $business->city,
+                'state' => $business->state,
+            ]);
+        }
+    }
 
     return $business->refresh();
 }

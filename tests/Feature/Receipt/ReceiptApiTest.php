@@ -12,9 +12,12 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class ReceiptApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     /*
@@ -48,7 +51,7 @@ class ReceiptApiTest extends TestCase
 
     private function createBusinessWithUser(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = User::factory()->create();
 

@@ -230,6 +230,26 @@ class SubscriptionTest extends TestCase
             ->toBe('grace_period');
     }
 
+    public function test_auto_renew_is_cast_to_boolean(): void
+    {
+        $business = Business::factory()->create();
+
+        $plan = SubscriptionPlan::factory()->create([
+            'price' => 5000,
+            'currency' => 'NGN',
+            'billing_interval' => 'monthly',
+        ]);
+
+        $subscription = Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'auto_renew' => false,
+        ]);
+
+        expect($subscription->auto_renew)
+            ->toBeFalse();
+    }
+
     public function test_subscription_can_store_provider_information(): void
     {
         $business = Business::factory()->create();

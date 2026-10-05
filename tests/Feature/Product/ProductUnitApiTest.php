@@ -12,9 +12,12 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class ProductUnitApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
   use RefreshDatabase;
 
   protected function setUp(): void
@@ -29,7 +32,7 @@ class ProductUnitApiTest extends TestCase
    */
   private function ownerWithBusiness(): array
   {
-    $business = Business::factory()->create();
+    $business = $this->createBusinessWithSubscription();
 
     $owner = User::factory()->create();
 
@@ -122,7 +125,7 @@ class ProductUnitApiTest extends TestCase
 
   public function test_manager_can_add_bulk_unit(): void
   {
-    $business = Business::factory()->create();
+    $business = $this->createBusinessWithSubscription();
 
     $manager = User::factory()->create();
 
@@ -175,7 +178,7 @@ class ProductUnitApiTest extends TestCase
 
   public function test_cashier_cannot_add_bulk_unit(): void
   {
-    $business = Business::factory()->create();
+    $business = $this->createBusinessWithSubscription();
 
     $cashier = User::factory()->create();
 
@@ -337,7 +340,7 @@ app(RoleService::class)->assignRole(
   {
     [$owner, $business] = $this->ownerWithBusiness();
 
-    $otherBusiness = Business::factory()->create();
+    $otherBusiness = $this->createBusinessWithSubscription();
 
     $otherOwner = User::factory()->create();
 

@@ -6,9 +6,14 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Organization\Models\Business;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Domains\Subscription\Services\SubscriptionLimitService;
 
 class CustomerService
 {
+    public function __construct(
+        private SubscriptionLimitService $subscriptionLimitService,
+    ) {}
+
     /**
      * Create a customer for a business.
      *
@@ -22,6 +27,8 @@ class CustomerService
             $business,
             $data
         ): Customer {
+            $this->subscriptionLimitService->ensureCustomerCapacity($business);
+
             $customerNumber = $this->generateCustomerNumber(
                 $business
             );

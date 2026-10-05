@@ -393,6 +393,41 @@ public function test_paystack_subscription_can_be_disabled(): void
 }
 
 /**
+ * Paystack recurring subscription can be enabled again.
+ */
+public function test_paystack_subscription_can_be_enabled(): void
+{
+    Http::fake([
+        'https://api.paystack.co/subscription/enable' =>
+            Http::response([
+                'status' => true,
+                'message' => 'Subscription enabled successfully',
+            ], 200),
+    ]);
+
+    $gateway = app(PaymentGateway::class);
+
+    $result = $gateway->enableSubscription(
+        'SUB_test_123',
+        'EMAIL_TOKEN_test_123'
+    );
+
+    expect($result['success'])
+        ->toBeTrue();
+
+    Http::assertSent(function ($request) {
+        return $request->url() ===
+            'https://api.paystack.co/subscription/enable'
+
+            && $request->method() === 'POST'
+
+            && $request['code'] === 'SUB_test_123'
+
+            && $request['token'] === 'EMAIL_TOKEN_test_123';
+    });
+}
+
+/**
  * Failed Paystack subscription creation is rejected.
  */
 public function test_failed_subscription_creation_throws_exception(): void

@@ -25,6 +25,7 @@ use App\Domains\Payment\Http\Controllers\OpayWebhookController;
 
 use App\Domains\Catalog\Controllers\CategoryController;
 use App\Domains\Service\Controllers\ServiceController;
+use App\Domains\Expenses\Controllers\ExpenseController;
 
 use App\Domains\Organization\Services\BusinessContextService;
 
@@ -53,6 +54,16 @@ Route::post('/auth/login', [
     AuthController::class,
     'login',
 ])->middleware('throttle:login');
+
+Route::post('/auth/forgot-password', [
+    AuthController::class,
+    'forgotPassword',
+])->middleware('throttle:6,1');
+
+Route::post('/auth/reset-password', [
+    AuthController::class,
+    'resetPassword',
+])->middleware('throttle:6,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -105,6 +116,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [
         AuthController::class,
         'logout',
+    ]);
+
+    Route::put('/auth/profile', [
+        AuthController::class,
+        'updateProfile',
     ]);
 
     /*
@@ -236,7 +252,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 BusinessJoinRequestController::class,
                 'approve',
             ]
-        );
+        )->middleware('subscription');
 
         Route::post(
             '/businesses/current/join-requests/{joinRequest}/reject',
@@ -305,6 +321,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:branches.view',
     ]);
 
@@ -313,6 +330,7 @@ Route::delete('/businesses/current/members/{user}', [
         'store',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:branches.create',
     ]);
 
@@ -321,6 +339,7 @@ Route::delete('/businesses/current/members/{user}', [
         'update',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:branches.update',
     ]);
 
@@ -377,6 +396,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:products.view',
     ]);
 
@@ -385,6 +405,7 @@ Route::delete('/businesses/current/members/{user}', [
         'store',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:products.create',
     ]);
 
@@ -393,6 +414,7 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:products.view',
     ]);
 
@@ -401,6 +423,7 @@ Route::delete('/businesses/current/members/{user}', [
         'update',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:products.update',
     ]);
 
@@ -409,6 +432,7 @@ Route::delete('/businesses/current/members/{user}', [
         'destroy',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:products.delete',
     ]);
 
@@ -426,6 +450,7 @@ Route::delete('/businesses/current/members/{user}', [
         ]
     )->middleware([
         'business.context',
+        'subscription',
         'permission:products.update',
     ]);
 
@@ -437,6 +462,7 @@ Route::delete('/businesses/current/members/{user}', [
         ]
     )->middleware([
         'business.context',
+        'subscription',
         'permission:products.update',
     ]);
 
@@ -448,6 +474,7 @@ Route::delete('/businesses/current/members/{user}', [
         ]
     )->middleware([
         'business.context',
+        'subscription',
         'permission:products.update',
     ]);
 
@@ -459,6 +486,7 @@ Route::delete('/businesses/current/members/{user}', [
         ]
     )->middleware([
         'business.context',
+        'subscription',
         'permission:products.update',
     ]);
 
@@ -473,6 +501,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:customers.view',
     ]);
 
@@ -481,6 +510,7 @@ Route::delete('/businesses/current/members/{user}', [
         'store',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:customers.create',
     ]);
 
@@ -489,6 +519,7 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:customers.view',
     ]);
 
@@ -497,6 +528,7 @@ Route::delete('/businesses/current/members/{user}', [
         'update',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:customers.update',
     ]);
 
@@ -505,6 +537,7 @@ Route::delete('/businesses/current/members/{user}', [
         'destroy',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:customers.delete',
     ]);
 
@@ -519,6 +552,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:inventory.view',
     ]);
 
@@ -527,6 +561,7 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:inventory.view',
     ]);
 
@@ -535,6 +570,7 @@ Route::delete('/businesses/current/members/{user}', [
         'receive',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:inventory.receive',
     ]);
 
@@ -543,6 +579,7 @@ Route::delete('/businesses/current/members/{user}', [
         'adjust',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:inventory.adjust',
     ]);
 
@@ -551,6 +588,7 @@ Route::delete('/businesses/current/members/{user}', [
         'movements',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:inventory.view',
     ]);
 
@@ -564,7 +602,7 @@ Route::delete('/businesses/current/members/{user}', [
     |
     */
 
-    Route::middleware('business.context')->group(function () {
+    Route::middleware(['business.context', 'subscription'])->group(function () {
 
         /*
         |--------------------------------------------------------------------------
@@ -575,6 +613,11 @@ Route::delete('/businesses/current/members/{user}', [
         Route::get('/businesses/current/sales/dashboard', [
             SaleController::class,
             'dashboard',
+        ])->middleware('permission:sales.view');
+
+        Route::get('/businesses/current/sales/advanced-analytics', [
+            SaleController::class,
+            'advancedAnalytics',
         ])->middleware('permission:sales.view');
 
         /*
@@ -622,6 +665,8 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
+        'subscription.capability:receipts',
         'permission:receipts.view',
     ]);
 
@@ -630,6 +675,8 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
+        'subscription.capability:receipts',
         'permission:receipts.view',
     ]);
 
@@ -638,6 +685,8 @@ Route::delete('/businesses/current/members/{user}', [
         'print',
     ])->middleware([
         'business.context',
+        'subscription',
+        'subscription.capability:receipts',
         'permission:receipts.print',
     ]);
 
@@ -646,6 +695,8 @@ Route::delete('/businesses/current/members/{user}', [
         'pdf',
     ])->middleware([
         'business.context',
+        'subscription',
+        'subscription.capability:receipts',
         'permission:receipts.print',
     ]);
 
@@ -665,6 +716,11 @@ Route::delete('/businesses/current/members/{user}', [
         'checkout',
     ])->middleware('business.context');
 
+    Route::put('/businesses/current/subscription/auto-renew', [
+        SubscriptionController::class,
+        'autoRenew',
+    ])->middleware('business.context');
+
     /*
     |--------------------------------------------------------------------------
     | Catalog Categories
@@ -676,6 +732,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:categories.view',
     ]);
 
@@ -684,6 +741,7 @@ Route::delete('/businesses/current/members/{user}', [
         'store',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:categories.create',
     ]);
 
@@ -692,6 +750,7 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:categories.view',
     ]);
 
@@ -700,6 +759,7 @@ Route::delete('/businesses/current/members/{user}', [
         'update',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:categories.update',
     ]);
 
@@ -708,6 +768,7 @@ Route::delete('/businesses/current/members/{user}', [
         'destroy',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:categories.delete',
     ]);
 
@@ -722,6 +783,7 @@ Route::delete('/businesses/current/members/{user}', [
         'index',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:services.view',
     ]);
 
@@ -730,6 +792,7 @@ Route::delete('/businesses/current/members/{user}', [
         'store',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:services.create',
     ]);
 
@@ -738,6 +801,7 @@ Route::delete('/businesses/current/members/{user}', [
         'show',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:services.view',
     ]);
 
@@ -746,6 +810,7 @@ Route::delete('/businesses/current/members/{user}', [
         'update',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:services.update',
     ]);
 
@@ -754,8 +819,19 @@ Route::delete('/businesses/current/members/{user}', [
         'destroy',
     ])->middleware([
         'business.context',
+        'subscription',
         'permission:services.delete',
     ]);
+
+    Route::middleware(['business.context', 'subscription'])->group(function () {
+        Route::get('/businesses/current/expenses', [ExpenseController::class, 'index'])->middleware('permission:expenses.view');
+        Route::get('/businesses/current/expenses/categories', [ExpenseController::class, 'categories'])->middleware('permission:expenses.view');
+        Route::get('/businesses/current/expenses/summary', [ExpenseController::class, 'summary'])->middleware('permission:expenses.view');
+        Route::post('/businesses/current/expenses/categories', [ExpenseController::class, 'storeCategory'])->middleware('permission:expenses.create');
+        Route::post('/businesses/current/expenses', [ExpenseController::class, 'store'])->middleware('permission:expenses.create');
+        Route::put('/businesses/current/expenses/{expense}', [ExpenseController::class, 'update'])->middleware('permission:expenses.update');
+        Route::delete('/businesses/current/expenses/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:expenses.delete');
+    });
 
     /*
     |--------------------------------------------------------------------------

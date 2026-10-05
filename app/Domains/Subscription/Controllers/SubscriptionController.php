@@ -5,7 +5,9 @@ namespace App\Domains\Subscription\Controllers;
 use App\Domains\Organization\Services\BusinessContextService;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Subscription\Services\SubscriptionCheckoutService;
+use App\Domains\Subscription\Services\SubscriptionBillingService;
 use App\Domains\Subscription\Services\SubscriptionService;
+use App\Http\Requests\SubscriptionAutoRenewRequest;
 use App\Http\Requests\SubscriptionCheckoutRequest;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -15,6 +17,7 @@ class SubscriptionController
     public function __construct(
         private SubscriptionService $subscriptionService,
         private SubscriptionCheckoutService $checkoutService,
+        private SubscriptionBillingService $billingService,
         private BusinessContextService $businessContext,
     ) {
     }
@@ -72,6 +75,9 @@ class SubscriptionController
                 'ended_at' =>
                     $subscription->ended_at?->toISOString(),
 
+                'auto_renew' =>
+                    (bool) $subscription->auto_renew,
+
                 'provider' => $subscription->provider,
 
                 'plan' => [
@@ -92,6 +98,59 @@ class SubscriptionController
                     'features' =>
                         $subscription->plan->features,
                 ],
+            ],
+        ]);
+    }
+
+    /**
+     * Enable or disable recurring billing for the current subscription.
+     */
+    public function autoRenew(
+        SubscriptionAutoRenewRequest $request
+    ): JsonResponse {
+        $business = $this->businessContext->current(
+            $request->user()
+        );
+
+        if (! $business) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Business context is required.',
+                'code' => 'BUSINESS_CONTEXT_REQUIRED',
+            ], 400);
+        }
+
+        $subscription = $business
+            ->subscription()
+            ->with('plan')
+            ->first();
+
+        if (! $subscription) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No subscription exists for this business.',
+            ], 404);
+        }
+
+        $enabled = $request->boolean('enabled');
+
+        $subscription = $enabled
+            ? $this->billingService->enableRenewal($subscription)
+            : $this->billingService->disableRenewal($subscription);
+
+        return response()->json([
+            'success' => true,
+            'message' => $enabled
+                ? 'Recurring billing has been enabled.'
+                : 'Recurring billing has been disabled. Your subscription remains active until the end of the current billing period.',
+            'subscription' => [
+                'id' => $subscription->id,
+                'status' => $subscription->status,
+                'auto_renew' => (bool) $subscription->auto_renew,
+                'current_period_end' =>
+                    $subscription->current_period_end?->toISOString(),
+                'cancelled_at' =>
+                    $subscription->cancelled_at?->toISOString(),
             ],
         ]);
     }

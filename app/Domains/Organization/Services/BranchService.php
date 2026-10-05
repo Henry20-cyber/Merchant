@@ -6,9 +6,15 @@ use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
+use App\Domains\Subscription\Services\SubscriptionLimitService;
 
 class BranchService
 {
+    public function __construct(
+        private SubscriptionLimitService $subscriptionLimitService,
+    ) {}
+
     /**
      * Get all branches belonging to a business.
      */
@@ -28,29 +34,33 @@ class BranchService
         Business $business,
         array $data
     ): Branch {
-        $isHeadOffice = (bool) (
-            $data['is_head_office'] ?? false
-        );
+        return DB::transaction(function () use ($business, $data): Branch {
+            $this->subscriptionLimitService->ensureBranchCapacity($business);
 
-        if ($isHeadOffice && $this->hasHeadOffice($business)) {
-            throw ValidationException::withMessages([
-                'is_head_office' => [
-                    'This business already has a Head Office.',
-                ],
+            $isHeadOffice = (bool) (
+                $data['is_head_office'] ?? false
+            );
+
+            if ($isHeadOffice && $this->hasHeadOffice($business)) {
+                throw ValidationException::withMessages([
+                    'is_head_office' => [
+                        'This business already has a Head Office.',
+                    ],
+                ]);
+            }
+
+            return $business->branches()->create([
+                'name' => $data['name'],
+                'code' => $data['code'],
+                'phone' => $data['phone'] ?? null,
+                'email' => $data['email'] ?? null,
+                'address' => $data['address'] ?? null,
+                'city' => $data['city'],
+                'state' => $data['state'],
+                'country' => $data['country'] ?? 'Nigeria',
+                'is_head_office' => $isHeadOffice,
             ]);
-        }
-
-        return $business->branches()->create([
-            'name' => $data['name'],
-            'code' => $data['code'],
-            'phone' => $data['phone'] ?? null,
-            'email' => $data['email'] ?? null,
-            'address' => $data['address'] ?? null,
-            'city' => $data['city'],
-            'state' => $data['state'],
-            'country' => $data['country'] ?? 'Nigeria',
-            'is_head_office' => $isHeadOffice,
-        ]);
+        });
     }
 
     /**

@@ -113,6 +113,31 @@ class SubscriptionLifecycleServiceTest extends TestCase
         )->toBe('past_due');
     }
 
+    public function test_non_renewing_subscription_expires_at_period_end(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+
+        $subscription = $this->createSubscription(
+            $business,
+            $plan,
+            [
+                'status' => 'active',
+                'auto_renew' => false,
+                'current_period_start' => now()->subMonth(),
+                'current_period_end' => now()->subDay(),
+            ]
+        );
+
+        $this->lifecycle->process($subscription);
+
+        expect($subscription->refresh()->status)
+            ->toBe('cancelled');
+
+        expect($subscription->ended_at)
+            ->not->toBeNull();
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Past due → grace period

@@ -14,9 +14,11 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class SalesDashboardApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
     use RefreshDatabase;
 
     private function createBusinessMember(
@@ -164,7 +166,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_authorized_user_can_view_sales_dashboard(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 
@@ -212,7 +214,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_user_without_sales_view_permission_cannot_view_dashboard(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 
@@ -231,8 +233,8 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_dashboard_is_scoped_to_current_business(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($businessA);
 
@@ -297,7 +299,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_dashboard_includes_services(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 

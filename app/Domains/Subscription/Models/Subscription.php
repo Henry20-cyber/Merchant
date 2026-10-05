@@ -26,6 +26,7 @@ class Subscription extends Model
     'provider_authorization_code',
     'provider_subscription_code',
     'provider_email_token',
+    'auto_renew',
     'starts_at',
     'current_period_start',
     'current_period_end',
@@ -45,6 +46,7 @@ protected function casts(): array
         'restricted_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'ended_at' => 'datetime',
+        'auto_renew' => 'boolean',
         'created_at' => 'datetime',
         'updated_at' => 'datetime',
     ];

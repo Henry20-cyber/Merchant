@@ -10,9 +10,13 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
+use Illuminate\Validation\ValidationException;
 
 class BranchManagementTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     private Business $business;
@@ -23,7 +27,7 @@ class BranchManagementTest extends TestCase
     {
         parent::setUp();
 
-        $this->business = Business::factory()->create();
+        $this->business = $this->createBusinessWithSubscription();
 
         $this->owner = User::factory()->create();
 
@@ -86,6 +90,35 @@ class BranchManagementTest extends TestCase
                 'data.0.name',
                 'Head Office'
             );
+    }
+
+    public function test_branch_creation_is_blocked_at_plan_limit(): void
+    {
+        $business = $this->createBusinessWithSubscription([
+            'branch_limit' => 1,
+        ]);
+
+        $service = app(\App\Domains\Organization\Services\BranchService::class);
+
+        $service->create($business, [
+            'name' => 'First Branch',
+            'code' => 'BR-001',
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => false,
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        $service->create($business, [
+            'name' => 'Second Branch',
+            'code' => 'BR-002',
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => false,
+        ]);
     }
 
     public function test_owner_can_create_branch(): void
@@ -317,7 +350,7 @@ class BranchManagementTest extends TestCase
 
     public function test_branch_from_another_business_is_not_accessible(): void
     {
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         $otherBranch = Branch::create([
             'business_id' => $otherBusiness->id,

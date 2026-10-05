@@ -215,6 +215,15 @@ class SaleController extends Controller
         ]);
     }
 
+    public function advancedAnalytics(Request $request, SalesAnalyticsService $analyticsService, BusinessContextService $businessContext): JsonResponse
+    {
+        $business = $businessContext->current($request->user());
+        if (! $business) {
+            return response()->json(['success' => false, 'message' => 'Business context is required.'], 400);
+        }
+        return response()->json(['success' => true, 'data' => $analyticsService->advanced($business, now())]);
+    }
+
     public function show(Request $request, string $sale): JsonResponse
     {
         $business = app(

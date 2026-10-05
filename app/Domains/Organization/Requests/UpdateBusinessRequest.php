@@ -26,6 +26,10 @@ class UpdateBusinessRequest extends FormRequest
                 'max:50',
             ],
 
+            'address' => ['sometimes', 'nullable', 'string', 'max:2000'],
+            'city' => ['sometimes', 'nullable', 'string', 'max:100'],
+            'state' => ['sometimes', 'nullable', 'string', 'max:100'],
+
             'email' => [
                 'sometimes',
                 'nullable',

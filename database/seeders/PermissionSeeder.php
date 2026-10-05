@@ -89,6 +89,12 @@ class PermissionSeeder extends Seeder
             'inventory.adjust',
             'inventory.transfer',
 
+            // Expenses
+            'expenses.view',
+            'expenses.create',
+            'expenses.update',
+            'expenses.delete',
+
             // Reports
             'reports.view',
             'reports.export',

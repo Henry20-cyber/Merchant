@@ -7,6 +7,7 @@ use App\Domains\Subscription\Enums\UsageMetric;
 use App\Domains\Subscription\Models\UsageRecord;
 use Carbon\CarbonInterface;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Str;
 
 class UsageService
 {
@@ -159,26 +160,11 @@ class UsageService
          * bypassing the limit.
          */
     if ($dailyLimit !== null) {
-      $dailyRecord = UsageRecord::query()
-        ->where('business_id', $business->id)
-        ->where(
-          'metric',
-          UsageMetric::SALES_TRANSACTIONS->value
-        )
-        ->where('period_start', $dailyStart)
-        ->where('period_end', $dailyEnd)
-        ->lockForUpdate()
-        ->first();
-
-      if (! $dailyRecord) {
-        $dailyRecord = UsageRecord::create([
-          'business_id' => $business->id,
-          'metric' => UsageMetric::SALES_TRANSACTIONS->value,
-          'quantity' => 0,
-          'period_start' => $dailyStart,
-          'period_end' => $dailyEnd,
-        ]);
-      }
+      $dailyRecord = $this->lockOrCreateUsageRecord(
+        $business,
+        $dailyStart,
+        $dailyEnd,
+      );
 
       if ($dailyRecord->quantity >= $dailyLimit) {
         throw ValidationException::withMessages([
@@ -191,26 +177,11 @@ class UsageService
          * Lock/check monthly usage.
          */
     if ($monthlyLimit !== null) {
-      $monthlyRecord = UsageRecord::query()
-        ->where('business_id', $business->id)
-        ->where(
-          'metric',
-          UsageMetric::SALES_TRANSACTIONS->value
-        )
-        ->where('period_start', $monthlyStart)
-        ->where('period_end', $monthlyEnd)
-        ->lockForUpdate()
-        ->first();
-
-      if (! $monthlyRecord) {
-        $monthlyRecord = UsageRecord::create([
-          'business_id' => $business->id,
-          'metric' => UsageMetric::SALES_TRANSACTIONS->value,
-          'quantity' => 0,
-          'period_start' => $monthlyStart,
-          'period_end' => $monthlyEnd,
-        ]);
-      }
+      $monthlyRecord = $this->lockOrCreateUsageRecord(
+        $business,
+        $monthlyStart,
+        $monthlyEnd,
+      );
 
       if ($monthlyRecord->quantity >= $monthlyLimit) {
         throw ValidationException::withMessages([
@@ -229,6 +200,42 @@ class UsageService
     if ($monthlyLimit !== null) {
       $monthlyRecord->increment('quantity');
     }
+  }
+
+  /**
+   * Atomically ensure a usage bucket exists, then lock it for the
+   * remainder of the surrounding transaction.
+   *
+   * insertOrIgnore handles the create race against the unique
+   * (business, metric, period) constraint. The subsequent SELECT
+   * obtains the row lock used for the actual limit check/increment.
+   */
+  private function lockOrCreateUsageRecord(
+    Business $business,
+    CarbonInterface $periodStart,
+    CarbonInterface $periodEnd,
+  ): UsageRecord {
+    UsageRecord::query()->insertOrIgnore([
+      'id' => (string) Str::uuid(),
+      'business_id' => $business->id,
+      'metric' => UsageMetric::SALES_TRANSACTIONS->value,
+      'quantity' => 0,
+      'period_start' => $periodStart,
+      'period_end' => $periodEnd,
+      'created_at' => now(),
+      'updated_at' => now(),
+    ]);
+
+    return UsageRecord::query()
+      ->where('business_id', $business->id)
+      ->where(
+        'metric',
+        UsageMetric::SALES_TRANSACTIONS->value
+      )
+      ->where('period_start', $periodStart)
+      ->where('period_end', $periodEnd)
+      ->lockForUpdate()
+      ->firstOrFail();
   }
 
   /**
