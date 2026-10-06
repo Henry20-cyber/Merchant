@@ -10,6 +10,7 @@ use App\Http\Requests\StoreSaleRequest;
 use App\Domains\Sales\Models\Sale;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Carbon\Carbon;
 
 class SaleController extends Controller
 {
@@ -53,6 +54,11 @@ class SaleController extends Controller
                     'payment_status',
                     'paid'
                 ),
+
+                'due_at' => $request->validated(
+                    'due_at'
+                ),
+
                 'status' => $request->validated(
                     'status',
                     'completed'
@@ -77,7 +83,7 @@ class SaleController extends Controller
         $query = Sale::query()
             ->where('business_id', $business->id)
             ->with([
-                'customer:id,name,email,phone',
+                'customer:id,name,phone',
                 'cashier:id,name',
                 'receipt:id,sale_id,receipt_number,status',
                 'items.product',
@@ -215,13 +221,39 @@ class SaleController extends Controller
         ]);
     }
 
-    public function advancedAnalytics(Request $request, SalesAnalyticsService $analyticsService, BusinessContextService $businessContext): JsonResponse
-    {
+    public function advancedAnalytics(
+        Request $request,
+        SalesAnalyticsService $analyticsService,
+        BusinessContextService $businessContext
+    ): JsonResponse {
         $business = $businessContext->current($request->user());
+
         if (! $business) {
-            return response()->json(['success' => false, 'message' => 'Business context is required.'], 400);
+            return response()->json([
+                'success' => false,
+                'message' => 'Business context is required.',
+            ], 400);
         }
-        return response()->json(['success' => true, 'data' => $analyticsService->advanced($business, now())]);
+
+        $startDate = $request->filled('start_date')
+            ? Carbon::parse($request->input('start_date'))
+            : null;
+
+        $endDate = $request->filled('end_date')
+            ? Carbon::parse($request->input('end_date'))
+            : null;
+
+        $analytics = $analyticsService->advanced(
+            $business,
+            now(),
+            $startDate,
+            $endDate,
+        );
+
+        return response()->json([
+            'success' => true,
+            'data' => $analytics,
+        ]);
     }
 
     public function show(Request $request, string $sale): JsonResponse

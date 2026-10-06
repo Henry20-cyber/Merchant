@@ -95,6 +95,14 @@ class PermissionSeeder extends Seeder
             'expenses.update',
             'expenses.delete',
 
+            // Credit / Receivables
+            'credits.view',
+            'credits.create',
+            'credits.update',
+            'credits.delete',
+
+            // Reports
+
             // Reports
             'reports.view',
             'reports.export',

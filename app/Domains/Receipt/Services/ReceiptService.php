@@ -165,6 +165,145 @@ class ReceiptService
         });
     }
 
+        /**
+     * Issue an immutable credit receipt for a completed credit sale.
+     *
+     * A credit receipt documents the original receivable.
+     * It does not represent money received.
+     */
+    public function issueCredit(
+        Sale $sale,
+        User $issuedBy
+    ): Receipt {
+        return DB::transaction(function () use (
+            $sale,
+            $issuedBy
+        ): Receipt {
+            $sale = Sale::query()
+                ->whereKey($sale->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $sale) {
+                throw ValidationException::withMessages([
+                    'sale' => 'The sale could not be found.',
+                ]);
+            }
+
+            $business = Business::query()
+                ->whereKey($sale->business_id)
+                ->first();
+
+            if (! $business) {
+                throw ValidationException::withMessages([
+                    'business' => 'The sale business could not be found.',
+                ]);
+            }
+
+            $isMember = $business->memberships()
+                ->where('user_id', $issuedBy->id)
+                ->where('status', 'active')
+                ->exists();
+
+            if (! $isMember) {
+                throw ValidationException::withMessages([
+                    'issued_by' =>
+                        'The issuing user does not belong to this business.',
+                ]);
+            }
+
+            if ($sale->status !== 'completed') {
+                throw ValidationException::withMessages([
+                    'sale' =>
+                        'A credit receipt can only be issued for a completed sale.',
+                ]);
+            }
+
+            if ($sale->payment_method !== 'credit') {
+                throw ValidationException::withMessages([
+                    'payment_method' =>
+                        'A credit receipt can only be issued for a credit sale.',
+                ]);
+            }
+
+            if (! $sale->customer_id) {
+                throw ValidationException::withMessages([
+                    'customer_id' =>
+                        'A credit sale must have a registered customer.',
+                ]);
+            }
+
+            $existingReceipt = Receipt::query()
+                ->where('sale_id', $sale->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($existingReceipt) {
+                throw ValidationException::withMessages([
+                    'sale' =>
+                        'A receipt has already been issued for this sale.',
+                ]);
+            }
+
+            $sale->load([
+                'items.product',
+                'items.productUnit',
+                'items.service',
+                'customer',
+                'cashier',
+                'payments',
+                'credit',
+            ]);
+
+            if (! $sale->credit) {
+                throw ValidationException::withMessages([
+                    'credit' =>
+                        'The credit record for this sale could not be found.',
+                ]);
+            }
+
+            $receiptNumber = $this->numberGenerator->next(
+                $business
+            );
+
+            $snapshot = $this->buildSnapshot(
+                $business,
+                $sale,
+                $receiptNumber
+            );
+
+            $paidAmount = $sale->payments
+                ->where('status', 'paid')
+                ->sum('amount');
+
+            $outstandingAmount = max(
+                0,
+                (float) $sale->total - (float) $paidAmount
+            );
+
+            $snapshot['receipt']['type'] = 'credit';
+
+            $snapshot['credit'] = [
+                'original_amount' => $this->money($sale->total),
+                'amount_paid' => $this->money($paidAmount),
+                'outstanding_amount' => $this->money($outstandingAmount),
+                'due_at' => $sale->credit->due_at?->toISOString(),
+                'status' => $sale->credit->status,
+            ];
+
+            return Receipt::create([
+                'business_id' => $business->id,
+                'sale_id' => $sale->id,
+                'receipt_number' => $receiptNumber,
+                'status' => 'issued',
+                'issued_by' => $issuedBy->id,
+                'issued_at' => now(),
+                'snapshot' => $snapshot,
+            ]);
+        });
+    }
+
+
     /**
      * Build the historical customer-facing representation
      * of a sale.
@@ -173,80 +312,92 @@ class ReceiptService
      * intentionally excluded.
      */
     private function buildSnapshot(
-        Business $business,
-        Sale $sale,
-        string $receiptNumber
-    ): array {
-        return [
-            'version' => 1,
+    Business $business,
+    Sale $sale,
+    string $receiptNumber
+): array {
+    return [
+        'version' => 1,
 
-            'business' => [
-                'id' => $business->id,
-                'name' => $business->name,
-                'email' => $business->email,
-                'phone' => $business->phone,
-                'website' => $business->website,
-                'registration_number' =>
-                    $business->registration_number,
-                'tax_number' => $business->tax_number,
-                'logo' => $business->logo,
-                'currency' => $business->currency,
-                'timezone' => $business->timezone,
-                'country' => $business->default_country,
-            ],
+        'business' => [
+            'id' => $business->id,
+            'name' => $business->name,
+            'email' => $business->email,
+            'phone' => $business->phone,
+            'website' => $business->website,
+            'registration_number' =>
+                $business->registration_number,
+            'tax_number' => $business->tax_number,
+            'logo' => $business->logo,
+            'currency' => $business->currency,
+            'timezone' => $business->timezone,
+            'country' => $business->default_country,
 
-            'receipt' => [
-                'number' => $receiptNumber,
-                'status' => 'issued',
-                'issued_at' => now()->toISOString(),
-            ],
+            /*
+             * Business address snapshot.
+             *
+             * These values are copied into the immutable
+             * receipt snapshot so historical receipts retain
+             * the address that belonged to the business when
+             * the receipt was issued.
+             */
+            'address' => $business->address,
+            'city' => $business->city,
+            'state' => $business->state,
+        ],
 
-            'sale' => [
-                'id' => $sale->id,
-                'subtotal' => $this->money($sale->subtotal),
-                'discount' => $this->money($sale->discount),
-                'tax' => $this->money($sale->tax),
-                'total' => $this->money($sale->total),
-                'payment_method' => $sale->payment_method,
-                'payment_status' => $sale->payment_status,
-                'status' => $sale->status,
-            ],
+        'receipt' => [
+            'number' => $receiptNumber,
+            'status' => 'issued',
+            'issued_at' => now()->toISOString(),
+        ],
 
-            'customer' => $this->customerSnapshot(
-                $sale->customer
-            ),
+        'sale' => [
+            'id' => $sale->id,
+            'subtotal' => $this->money($sale->subtotal),
+            'discount' => $this->money($sale->discount),
+            'tax' => $this->money($sale->tax),
+            'total' => $this->money($sale->total),
+            'payment_method' => $sale->payment_method,
+            'payment_status' => $sale->payment_status,
+            'status' => $sale->status,
+        ],
 
-            'cashier' => $this->cashierSnapshot(
-                $sale->cashier
-            ),
+        'customer' => $this->customerSnapshot(
+            $sale->customer
+        ),
 
-            'items' => $sale->items
-                ->map(
-                    fn (SaleItem $item) =>
-                        $this->itemSnapshot($item)
-                )
-                ->values()
-                ->all(),
+        'cashier' => $this->cashierSnapshot(
+            $sale->cashier
+        ),
 
-            'payments' => $sale->payments
-                ->map(
-                    fn ($payment) => [
-                        'id' => $payment->id,
-                        'amount' => $this->money(
-                            $payment->amount
-                        ),
-                        'method' => $payment->method,
-                        'status' => $payment->status,
-                        'reference' => $payment->reference,
-                        'paid_at' => $payment->paid_at
-                            ? $payment->paid_at->toISOString()
-                            : null,
-                    ]
-                )
-                ->values()
-                ->all(),
-        ];
-    }
+        'items' => $sale->items
+            ->map(
+                fn (SaleItem $item) =>
+                    $this->itemSnapshot($item)
+            )
+            ->values()
+            ->all(),
+
+        'payments' => $sale->payments
+            ->map(
+                fn ($payment) => [
+                    'id' => $payment->id,
+                    'amount' => $this->money(
+                        $payment->amount
+                    ),
+                    'method' => $payment->method,
+                    'status' => $payment->status,
+                    'reference' => $payment->reference,
+                    'paid_at' => $payment->paid_at
+                        ? $payment->paid_at->toISOString()
+                        : null,
+                ]
+            )
+            ->values()
+            ->all(),
+    ];
+}
 
     /**
      * Build customer snapshot.

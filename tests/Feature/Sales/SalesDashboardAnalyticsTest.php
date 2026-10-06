@@ -8,6 +8,7 @@ use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Service\Models\Service;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
+use App\Domains\Expenses\Models\Expense;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -88,6 +89,27 @@ class SalesDashboardAnalyticsTest extends TestCase
     }
 
     return $sale;
+}
+
+private function createExpense(
+    Business $business,
+    User $user,
+    float $amount,
+    ?string $expenseDate = null,
+    string $status = 'recorded'
+): Expense {
+    return Expense::create([
+        'business_id' => $business->id,
+        'category_id' => null,
+        'branch_id' => null,
+        'user_id' => $user->id,
+        'amount' => $amount,
+        'description' => 'Test expense',
+        'expense_date' => $expenseDate ?? now()->toDateString(),
+        'payment_method' => 'cash',
+        'reference' => null,
+        'status' => $status,
+    ]);
 }
 
     public function test_dashboard_calculates_daily_revenue(): void
@@ -586,4 +608,210 @@ class SalesDashboardAnalyticsTest extends TestCase
             $analytics['top_items'][0]['revenue']
         );
     }
+
+    public function test_dashboard_calculates_daily_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Coca-Cola',
+        1000
+    );
+
+    $this->createSale(
+        $business,
+        $cashier,
+        [
+            [
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity' => 10,
+                'unit_price' => 1000,
+            ],
+        ],
+        now()->setTime(10, 0)
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2500,
+        now()->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard($business, now());
+
+    $this->assertEquals(
+        10000,
+        $analytics['daily']['revenue']
+    );
+
+    $this->assertEquals(
+        2500,
+        $analytics['daily']['expenses']
+    );
+
+    $this->assertEquals(
+        7500,
+        $analytics['daily']['net_result']
+    );
+}
+
+public function test_dashboard_calculates_weekly_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Peak Milk',
+        1200
+    );
+
+    $this->createSale(
+        $business,
+        $cashier,
+        [
+            [
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity' => 10,
+                'unit_price' => 1200,
+            ],
+        ],
+        now()->startOfWeek()->addDay()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        3000,
+        now()->startOfWeek()->addDay()->toDateString()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2000,
+        now()->startOfWeek()->addDays(3)->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard($business, now());
+
+    $this->assertEquals(
+        12000,
+        $analytics['weekly']['revenue']
+    );
+
+    $this->assertEquals(
+        5000,
+        $analytics['weekly']['expenses']
+    );
+
+    $this->assertEquals(
+        7000,
+        $analytics['weekly']['net_result']
+    );
+}
+
+public function test_dashboard_calculates_monthly_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Bread',
+        1500
+    );
+
+    $this->createSale(
+        $business,
+        $cashier,
+        [
+            [
+                'product_id' => $product->id,
+                'product_unit_id' => $unit->id,
+                'quantity' => 10,
+                'unit_price' => 1500,
+            ],
+        ],
+        now()->startOfMonth()->addDay()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        8000,
+        now()->startOfMonth()->addDay()->toDateString()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2000,
+        now()->startOfMonth()->addDays(10)->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard($business, now());
+
+    $this->assertEquals(
+        15000,
+        $analytics['monthly']['revenue']
+    );
+
+    $this->assertEquals(
+        10000,
+        $analytics['monthly']['expenses']
+    );
+
+    $this->assertEquals(
+        5000,
+        $analytics['monthly']['net_result']
+    );
+}
+
+public function test_dashboard_excludes_voided_expenses(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        5000,
+        now()->toDateString(),
+        'recorded'
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        3000,
+        now()->toDateString(),
+        'voided'
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard($business, now());
+
+    $this->assertEquals(
+        5000,
+        $analytics['daily']['expenses']
+    );
+
+    $this->assertEquals(
+        -5000,
+        $analytics['daily']['net_result']
+    );
+}
 }

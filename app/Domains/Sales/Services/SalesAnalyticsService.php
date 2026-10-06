@@ -5,6 +5,7 @@ namespace App\Domains\Sales\Services;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
+use App\Domains\Expenses\Models\Expense;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
@@ -27,23 +28,96 @@ class SalesAnalyticsService
         $monthlyStart = $date->copy()->startOfMonth();
         $monthlyEnd = $date->copy()->endOfMonth();
 
+        // Daily financial metrics
+        $dailyRevenue = $this->revenueBetween(
+            $business,
+            $dailyStart,
+            $dailyEnd
+        );
+
+        $dailyExpenses = $this->expensesBetween(
+            $business,
+            $dailyStart,
+            $dailyEnd
+        );
+
+        // Weekly financial metrics
+        $weeklyRevenue = $this->revenueBetween(
+            $business,
+            $weeklyStart,
+            $weeklyEnd
+        );
+
+        $weeklyExpenses = $this->expensesBetween(
+            $business,
+            $weeklyStart,
+            $weeklyEnd
+        );
+
+        // Monthly financial metrics
+        $monthlyRevenue = $this->revenueBetween(
+            $business,
+            $monthlyStart,
+            $monthlyEnd
+        );
+
+        $monthlyExpenses = $this->expensesBetween(
+            $business,
+            $monthlyStart,
+            $monthlyEnd
+        );
+
         return [
             'daily' => [
-                'revenue' => $this->revenueBetween($business, $dailyStart, $dailyEnd),
-                'transactions' => $this->transactionsBetween($business, $dailyStart, $dailyEnd),
-                'top_items' => $this->topItemsBetween($business, $dailyStart, $dailyEnd),
+                'revenue' => $dailyRevenue,
+                'expenses' => $dailyExpenses,
+                'net_result' => $dailyRevenue - $dailyExpenses,
+                'transactions' => $this->transactionsBetween(
+                    $business,
+                    $dailyStart,
+                    $dailyEnd
+                ),
+                'top_items' => $this->topItemsBetween(
+                    $business,
+                    $dailyStart,
+                    $dailyEnd
+                ),
             ],
+
             'weekly' => [
-                'revenue' => $this->revenueBetween($business, $weeklyStart, $weeklyEnd),
-                'transactions' => $this->transactionsBetween($business, $weeklyStart, $weeklyEnd),
-                'top_items' => $this->topItemsBetween($business, $weeklyStart, $weeklyEnd),
+                'revenue' => $weeklyRevenue,
+                'expenses' => $weeklyExpenses,
+                'net_result' => $weeklyRevenue - $weeklyExpenses,
+                'transactions' => $this->transactionsBetween(
+                    $business,
+                    $weeklyStart,
+                    $weeklyEnd
+                ),
+                'top_items' => $this->topItemsBetween(
+                    $business,
+                    $weeklyStart,
+                    $weeklyEnd
+                ),
             ],
+
             'monthly' => [
-                'revenue' => $this->revenueBetween($business, $monthlyStart, $monthlyEnd),
-                'transactions' => $this->transactionsBetween($business, $monthlyStart, $monthlyEnd),
-                'top_items' => $this->topItemsBetween($business, $monthlyStart, $monthlyEnd),
+                'revenue' => $monthlyRevenue,
+                'expenses' => $monthlyExpenses,
+                'net_result' => $monthlyRevenue - $monthlyExpenses,
+                'transactions' => $this->transactionsBetween(
+                    $business,
+                    $monthlyStart,
+                    $monthlyEnd
+                ),
+                'top_items' => $this->topItemsBetween(
+                    $business,
+                    $monthlyStart,
+                    $monthlyEnd
+                ),
             ],
+
             'top_items' => $this->topItems($business),
+
             'revenue_breakdown' => $this->revenueBreakdown($business),
         ];
     }
@@ -56,10 +130,14 @@ class SalesAnalyticsService
      * two sales queries per day for a 14-day period, which could become very
      * expensive as the sales table grows.
      */
-    public function advanced(Business $business, CarbonInterface $date): array
-    {
-        $start = $date->copy()->subDays(13)->startOfDay();
-        $end = $date->copy()->endOfDay();
+    public function advanced(
+        Business $business,
+        CarbonInterface $date,
+        ?CarbonInterface $startDate = null,
+        ?CarbonInterface $endDate = null,
+    ): array {
+        $start = ($startDate ?? $date->copy()->subDays(13))->startOfDay();
+        $end = ($endDate ?? $date)->endOfDay();
 
         // One query for all daily revenue + transaction counts in the period.
         $dailyRows = Sale::query()
@@ -71,22 +149,45 @@ class SalesAnalyticsService
             ->groupByRaw('DATE(created_at)')
             ->orderBy('sale_date')
             ->get()
-            ->keyBy(fn ($row) => (string) $row->sale_date);
+            ->keyBy(fn($row) => (string) $row->sale_date);
+
+        $dailyExpenseRows = Expense::query()
+            ->where('business_id', $business->id)
+            ->where('status', 'recorded')
+            ->whereBetween('expense_date', [
+                $start->toDateString(),
+                $end->toDateString(),
+            ])
+            ->selectRaw("TO_CHAR(expense_date, 'YYYY-MM-DD') AS expense_date")
+            ->selectRaw('SUM(amount) AS expenses')
+            ->groupByRaw("TO_CHAR(expense_date, 'YYYY-MM-DD')")
+            ->orderBy('expense_date')
+            ->get()
+            ->keyBy(fn($row) => substr((string) $row->expense_date, 0, 10));
 
         $daily = [];
-        for ($day = 0; $day < 14; $day++) {
-            // Use a fresh date for each iteration so this works with both
-            // mutable and immutable Carbon implementations.
-            $cursor = $start->copy()->addDays($day);
-            $dateKey = $cursor->toDateString();
-            $row = $dailyRows->get($dateKey);
+for (
+    $cursor = $start->copy();
+    $cursor->lte($end);
+) {
+    $dateKey = $cursor->toDateString();
 
-            $daily[] = [
-                'date' => $cursor->format('M j'),
-                'revenue' => $row ? (float) $row->revenue : 0.0,
-                'transactions' => $row ? (int) $row->transactions : 0,
-            ];
-        }
+    $row = $dailyRows->get($dateKey);
+    $expenseRow = $dailyExpenseRows->get($dateKey);
+
+    $revenue = $row ? (float) $row->revenue : 0.0;
+    $expenses = $expenseRow ? (float) $expenseRow->expenses : 0.0;
+
+    $daily[] = [
+        'date' => $cursor->format('M j'),
+        'revenue' => $revenue,
+        'expenses' => $expenses,
+        'net_result' => $revenue - $expenses,
+        'transactions' => $row ? (int) $row->transactions : 0,
+    ];
+
+    $cursor = $cursor->copy()->addDay();
+}
 
         // One aggregate query for the period total.
         $periodTotals = Sale::query()
@@ -102,9 +203,15 @@ class SalesAnalyticsService
         // One aggregate query for top products/services in the same period.
         $top = $this->topItems($business, 8, $start, $end, $revenue);
 
-        // Preserve the existing dashboard contract: revenue breakdown remains
-        // business-wide, while the advanced trend/top-item metrics are 14-day.
-        $revenueBreakdown = $this->revenueBreakdown($business);
+        // Advanced analytics use the selected period consistently.
+        $expenses = $this->expensesBetween($business, $start, $end);
+        $netResult = $revenue - $expenses;
+
+        $revenueBreakdown = $this->revenueBreakdown(
+            $business,
+            $start,
+            $end,
+        );
 
         return [
             'period' => [
@@ -112,6 +219,8 @@ class SalesAnalyticsService
                 'end' => $end->toDateString(),
             ],
             'revenue' => $revenue,
+            'expenses' => $expenses,
+            'net_result' => $netResult,
             'transactions' => $transactions,
             'average_transaction_value' => $transactions > 0
                 ? round($revenue / $transactions, 2)
@@ -146,11 +255,11 @@ class SalesAnalyticsService
             ->get();
 
         $cogs = (float) $items->sum(
-            fn ($item) => (float) $item->quantity * (float) $item->unit_cost
+            fn($item) => (float) $item->quantity * (float) $item->unit_cost
         );
 
         $unitsSold = (int) $items->sum(
-            fn ($item) => (float) $item->quantity
+            fn($item) => (float) $item->quantity
         );
 
         $grossProfit = $revenue - $cogs;
@@ -402,5 +511,20 @@ class SalesAnalyticsService
         if ($endDate !== null) {
             $query->whereDate($column, '<=', $endDate);
         }
+    }
+
+    private function expensesBetween(
+        Business $business,
+        CarbonInterface $start,
+        CarbonInterface $end
+    ): float {
+        return (float) Expense::query()
+            ->where('business_id', $business->id)
+            ->where('status', 'recorded')
+            ->whereBetween('expense_date', [
+                $start->toDateString(),
+                $end->toDateString(),
+            ])
+            ->sum('amount');
     }
 }

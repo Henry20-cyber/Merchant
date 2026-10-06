@@ -12,6 +12,7 @@ use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Subscription\Services\UsageService;
 use App\Domains\Receipt\Services\ReceiptService;
 use App\Domains\Payment\Services\PaymentService;
+use App\Domains\Credit\Services\CreditService;
 use App\Domains\Service\Models\Service;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
@@ -29,16 +30,20 @@ class SaleService
 
     private InventoryQuantityConverter $quantityConverter;
 
+    private CreditService $creditService;
+
     public function __construct(
         UsageService $usageService,
         PaymentService $paymentService,
         ReceiptService $receiptService,
-        InventoryQuantityConverter $quantityConverter
+        InventoryQuantityConverter $quantityConverter,
+        CreditService $creditService
     ) {
         $this->usageService = $usageService;
         $this->paymentService = $paymentService;
         $this->receiptService = $receiptService;
         $this->quantityConverter = $quantityConverter;
+        $this->creditService = $creditService;
     }
 
     /**
@@ -186,6 +191,28 @@ class SaleService
 
             $total = $subtotal - $discount + $tax;
 
+
+            /*
+ * --------------------------------------------------------------
+ * PAYMENT STATE
+ * --------------------------------------------------------------
+ *
+ * Credit is a receivable, not an actual payment method handled
+ * by PaymentService. A credit sale must always begin unpaid.
+ */
+            $paymentMethod = $saleData['payment_method'] ?? 'cash';
+            $paymentStatus = $saleData['payment_status'] ?? 'paid';
+
+            if ($paymentMethod === 'credit') {
+                if (! $customer) {
+                    throw ValidationException::withMessages([
+                        'customer_id' => 'A credit sale requires a registered customer.',
+                    ]);
+                }
+
+                $paymentStatus = 'unpaid';
+            }
+
             /*
              * --------------------------------------------------------------
              * CREATE SALE
@@ -199,8 +226,8 @@ class SaleService
                 'discount' => $discount,
                 'tax' => $tax,
                 'total' => $total,
-                'payment_method' => $saleData['payment_method'] ?? 'cash',
-                'payment_status' => $saleData['payment_status'] ?? 'paid',
+                'payment_method' => $paymentMethod,
+                'payment_status' => $paymentStatus,
                 'status' => $saleData['status'] ?? 'completed',
             ]);
 
@@ -218,41 +245,50 @@ class SaleService
             }
 
             /*
-             * --------------------------------------------------------------
-             * PAYMENT
-             * --------------------------------------------------------------
-             * Create a payment record for completed sales.
-             *
-             * The payment may be:
-             * - paid     → receipt is issued
-             * - pending  → awaiting external confirmation
-             */
-            if (
-                $sale->status === 'completed'
-            ) {
-                $paymentStatus = $sale->payment_status;
+ * --------------------------------------------------------------
+ * PAYMENT / CREDIT
+ * --------------------------------------------------------------
+ *
+ * Credit is not recorded as a Payment. Instead, create a
+ * receivable linked to this sale. Actual repayments will later
+ * be recorded through CreditService → PaymentService.
+ */
+            if ($sale->status === 'completed') {
+                if ($sale->payment_method === 'credit') {
+                    $this->creditService->create(
+                        $business,
+                        $sale,
+                        $saleData['due_at'] ?? null,
+                    );
 
-
-                $this->paymentService->create(
-                    $business,
-                    $sale,
-                    [
-                        'amount' => $sale->total,
-                        'method' => $sale->payment_method,
-                        'status' =>  $paymentStatus,
-                    ]
-                );
-
-                /*
-                 * ----------------------------------------------------------
-                 * RECEIPT
-                 * ----------------------------------------------------------
-                 */
-                if ($paymentStatus === 'paid') {
-                    $this->receiptService->issue(
+                    $this->receiptService->issueCredit(
                         $sale,
                         $cashier
                     );
+                } else {
+                    $paymentStatus = $sale->payment_status;
+
+                    $this->paymentService->create(
+                        $business,
+                        $sale,
+                        [
+                            'amount' => $sale->total,
+                            'method' => $sale->payment_method,
+                            'status' => $paymentStatus,
+                        ]
+                    );
+
+                    /*
+         * ----------------------------------------------------------
+         * RECEIPT
+         * ----------------------------------------------------------
+         */
+                    if ($paymentStatus === 'paid') {
+                        $this->receiptService->issue(
+                            $sale,
+                            $cashier
+                        );
+                    }
                 }
             }
 

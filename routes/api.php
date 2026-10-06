@@ -20,6 +20,8 @@ use App\Domains\Customer\Controllers\CustomerController;
 
 use App\Domains\Sales\Http\Controllers\SaleController;
 
+use App\Domains\Credit\Http\Controllers\CreditController;
+
 use App\Domains\Payment\Controllers\PaystackWebhookController;
 use App\Domains\Payment\Http\Controllers\OpayWebhookController;
 
@@ -263,40 +265,40 @@ Route::middleware('auth:sanctum')->group(function () {
         );
     });
 
-  /*
+    /*
 |--------------------------------------------------------------------------
 | Business Members
 |--------------------------------------------------------------------------
 */
 
-Route::get('/businesses/current/members', [
-    BusinessMemberController::class,
-    'index',
-])->middleware('permission:users.view');
+    Route::get('/businesses/current/members', [
+        BusinessMemberController::class,
+        'index',
+    ])->middleware('permission:users.view');
 
 
-/*
+    /*
 |--------------------------------------------------------------------------
 | Assign Member Role
 |--------------------------------------------------------------------------
 */
 
-Route::put('/businesses/current/members/{user}/role', [
-    BusinessMemberController::class,
-    'assignRole',
-])->middleware('permission:roles.assign');
+    Route::put('/businesses/current/members/{user}/role', [
+        BusinessMemberController::class,
+        'assignRole',
+    ])->middleware('permission:roles.assign');
 
 
-/*
+    /*
 |--------------------------------------------------------------------------
 | Remove Business Member
 |--------------------------------------------------------------------------
 */
 
-Route::delete('/businesses/current/members/{user}', [
-    BusinessMemberController::class,
-    'removeMember',
-]);
+    Route::delete('/businesses/current/members/{user}', [
+        BusinessMemberController::class,
+        'removeMember',
+    ]);
 
     /*
     |--------------------------------------------------------------------------
@@ -823,14 +825,70 @@ Route::delete('/businesses/current/members/{user}', [
         'permission:services.delete',
     ]);
 
+    /*
+    |--------------------------------------------------------------------------
+    | Expenses
+    |--------------------------------------------------------------------------
+    */
+
     Route::middleware(['business.context', 'subscription'])->group(function () {
-        Route::get('/businesses/current/expenses', [ExpenseController::class, 'index'])->middleware('permission:expenses.view');
-        Route::get('/businesses/current/expenses/categories', [ExpenseController::class, 'categories'])->middleware('permission:expenses.view');
-        Route::get('/businesses/current/expenses/summary', [ExpenseController::class, 'summary'])->middleware('permission:expenses.view');
-        Route::post('/businesses/current/expenses/categories', [ExpenseController::class, 'storeCategory'])->middleware('permission:expenses.create');
-        Route::post('/businesses/current/expenses', [ExpenseController::class, 'store'])->middleware('permission:expenses.create');
-        Route::put('/businesses/current/expenses/{expense}', [ExpenseController::class, 'update'])->middleware('permission:expenses.update');
-        Route::delete('/businesses/current/expenses/{expense}', [ExpenseController::class, 'destroy'])->middleware('permission:expenses.delete');
+        Route::get('/businesses/current/expenses', [
+            ExpenseController::class,
+            'index',
+        ])->middleware('permission:expenses.view');
+
+        Route::get('/businesses/current/expenses/categories', [
+            ExpenseController::class,
+            'categories',
+        ])->middleware('permission:expenses.view');
+
+        Route::get('/businesses/current/expenses/summary', [
+            ExpenseController::class,
+            'summary',
+        ])->middleware('permission:expenses.view');
+
+        Route::post('/businesses/current/expenses/categories', [
+            ExpenseController::class,
+            'storeCategory',
+        ])->middleware('permission:expenses.create');
+
+        Route::post('/businesses/current/expenses', [
+            ExpenseController::class,
+            'store',
+        ])->middleware('permission:expenses.create');
+
+        Route::put('/businesses/current/expenses/{expense}', [
+            ExpenseController::class,
+            'update',
+        ])->middleware('permission:expenses.update');
+
+        Route::delete('/businesses/current/expenses/{expense}', [
+            ExpenseController::class,
+            'destroy',
+        ])->middleware('permission:expenses.delete');
+    });
+
+    /*
+    |--------------------------------------------------------------------------
+    | Credit / Receivables
+    |--------------------------------------------------------------------------
+    */
+
+    Route::middleware(['business.context', 'subscription'])->group(function () {
+        Route::get('/businesses/current/credits', [
+            CreditController::class,
+            'index',
+        ])->middleware('permission:credits.view');
+
+        Route::get('/businesses/current/credits/{credit}', [
+            CreditController::class,
+            'show',
+        ])->middleware('permission:credits.view');
+
+        Route::post('/businesses/current/credits/{credit}/payments', [
+            CreditController::class,
+            'recordPayment',
+        ])->middleware('permission:credits.update');
     });
 
     /*

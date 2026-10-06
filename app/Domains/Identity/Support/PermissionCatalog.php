@@ -89,6 +89,12 @@ class PermissionCatalog
             'expenses.update',
             'expenses.delete',
 
+            // Credit / Receivables
+            'credits.view',
+            'credits.create',
+            'credits.update',
+            'credits.delete',
+
             // Reports
             'reports.view',
             'reports.export',

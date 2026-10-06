@@ -144,6 +144,11 @@ class StoreSaleRequest extends FormRequest
                 'max:50',
             ],
 
+            'due_at' => [
+                'nullable',
+                'date',
+            ],
+
             'status' => [
                 'nullable',
                 'string',
