@@ -90,6 +90,21 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
+
+                'expenses.view',
+                'expenses.create',
+                'expenses.update',
+                'expenses.delete',
+
+                'credits.view',
+                'credits.create',
+                'credits.update',
+                'credits.delete',
+
+                /*
+ * Reports & Financial Analytics
+ */
+                'reports.view',
             ],
 
             /*
@@ -151,6 +166,19 @@ class RoleService
                 'inventory.receive',
                 'inventory.adjust',
                 'inventory.transfer',
+
+                'expenses.view',
+                'expenses.create',
+                'expenses.update',
+
+                'expenses.view',
+                'expenses.create',
+                'expenses.update',
+
+                /*
+ * Reports & Financial Analytics
+ */
+                'reports.view',
             ],
 
             /*
@@ -186,6 +214,10 @@ class RoleService
                 'receipts.view',
                 'receipts.create',
                 'receipts.print',
+
+                'credits.view',
+                'credits.create',
+                'credits.update',
 
                 /*
                  * Cashiers can view inventory,

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Receipt;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Receipt\Models\Receipt;
@@ -9,12 +10,15 @@ use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use App\Domains\Organization\Services\BranchContextService;
+use Tests\Support\CreatesSubscriptionForBusiness;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class ReceiptPrintTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesSubscriptionForBusiness;
 
     protected function setUp(): void
     {
@@ -31,7 +35,11 @@ class ReceiptPrintTest extends TestCase
      */
     private function createBusinessWithOwner(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription([
+            'features' => [
+                'receipts' => true,
+            ],
+        ]);
 
         $user = User::factory()->create();
 
@@ -55,6 +63,22 @@ class ReceiptPrintTest extends TestCase
             $business->id
         );
 
+        $branch = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
+        );
+
         return [
             $business,
             $user,
@@ -68,8 +92,14 @@ class ReceiptPrintTest extends TestCase
         Business $business,
         User $user
     ): Receipt {
+        $branch = Branch::query()
+            ->where('business_id', $business->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
         $sale = Sale::factory()->create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'cashier_id' => $user->id,
             'status' => 'completed',
             'payment_status' => 'paid',
@@ -295,6 +325,17 @@ class ReceiptPrintTest extends TestCase
             $userB
         );
 
+        $branchA = Branch::query()
+            ->where('business_id', $businessA->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $userA,
+            $businessA,
+            $branchA
+        );
+
         $response = $this
             ->actingAs($userA)
             ->withHeaders([
@@ -309,7 +350,11 @@ class ReceiptPrintTest extends TestCase
 
     public function test_user_without_receipt_permission_cannot_print(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription([
+            'features' => [
+                'receipts' => true,
+            ],
+        ]);
 
         $user = User::factory()->create();
 
@@ -324,6 +369,22 @@ class ReceiptPrintTest extends TestCase
             PermissionRegistrar::class
         )->setPermissionsTeamId(
             $business->id
+        );
+
+        $branch = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
         );
 
         $receipt = Receipt::factory()->create([

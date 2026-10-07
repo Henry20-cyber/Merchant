@@ -4,6 +4,7 @@ namespace Tests\Feature\Inventory;
 
 use App\Domains\Inventory\Services\StockService;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +13,14 @@ use Tests\TestCase;
 class StockTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function branchFor(Business $business): Branch
+    {
+        return Branch::firstOrCreate(
+            ['business_id' => $business->id, 'code' => 'MAIN-' . $business->id],
+            ['name' => 'Main Branch', 'city' => 'Owerri', 'state' => 'Imo', 'country' => 'Nigeria', 'is_head_office' => true]
+        );
+    }
 
     private function createProductWithBaseUnit(
         Business $business
@@ -39,8 +48,8 @@ class StockTest extends TestCase
 
         $stock = app(StockService::class)->createStock(
             $business,
-            $product,
-            $unit
+            $this->branchFor($business),
+            $product
         );
 
         $this->assertDatabaseHas('stocks', [
@@ -63,8 +72,8 @@ class StockTest extends TestCase
 
         $stock = app(StockService::class)->createStock(
             $businessA,
-            $product,
-            $unit
+            $this->branchFor($businessA),
+            $product
         );
 
         $this->assertEquals(
@@ -78,7 +87,7 @@ class StockTest extends TestCase
         );
     }
 
-    public function test_duplicate_stock_for_same_unit_is_rejected(): void
+    public function test_stock_creation_is_idempotent_for_same_branch_and_product(): void
     {
         $business = Business::factory()->create();
 
@@ -87,20 +96,26 @@ class StockTest extends TestCase
         );
 
         $service = app(StockService::class);
+        $branch = $this->branchFor($business);
 
-        $service->createStock(
+        $first = $service->createStock(
             $business,
-            $product,
-            $unit
+            $branch,
+            $product
         );
 
-        $this->expectException(\Throwable::class);
-
-        $service->createStock(
+        $second = $service->createStock(
             $business,
-            $product,
-            $unit
+            $branch,
+            $product
         );
+
+        $this->assertSame(
+            $first->id,
+            $second->id
+        );
+
+        $this->assertDatabaseCount('stocks', 1);
     }
 
     public function test_stock_cannot_be_created_for_unit_from_another_business(): void
@@ -116,8 +131,8 @@ class StockTest extends TestCase
 
         app(StockService::class)->createStock(
             $businessB,
-            $product,
-            $unit
+            $this->branchFor($businessB),
+            $product
         );
     }
 }

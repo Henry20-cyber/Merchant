@@ -267,4 +267,44 @@ public function disableSubscription(
         'raw' => $payload,
     ];
 }
+
+/**
+ * Re-enable a recurring subscription with Paystack.
+ */
+public function enableSubscription(
+    string $subscriptionCode,
+    string $emailToken
+): array {
+    try {
+        $response = Http::withToken($this->secretKey)
+            ->acceptJson()
+            ->post(
+                $this->baseUrl . '/subscription/enable',
+                [
+                    'code' => $subscriptionCode,
+                    'token' => $emailToken,
+                ]
+            )
+            ->throw();
+    } catch (RequestException $exception) {
+        throw new RuntimeException(
+            'Unable to enable Paystack subscription.',
+            previous: $exception
+        );
+    }
+
+    $payload = $response->json();
+
+    if (! ($payload['status'] ?? false)) {
+        throw new RuntimeException(
+            $payload['message']
+                ?? 'Paystack subscription enabling failed.'
+        );
+    }
+
+    return [
+        'success' => true,
+        'raw' => $payload,
+    ];
+}
 }

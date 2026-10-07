@@ -12,6 +12,8 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Domains\Receipt\Models\Receipt;
+use App\Domains\Credit\Models\Credit;
+use App\Domains\Organization\Models\Branch;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Database\Factories\SaleFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -22,14 +24,15 @@ class Sale extends Model
   use HasFactory;
 
   protected static function newFactory()
-{
+  {
     return SaleFactory::new();
-}
+  }
 
   protected $table = 'sales';
 
   protected $fillable = [
     'business_id',
+     'branch_id',
     'cashier_id',
     'customer_id',
     'subtotal',
@@ -69,33 +72,47 @@ class Sale extends Model
   }
 
   /**
- * Sale optionally belongs to a customer.
- */
-public function customer(): BelongsTo
-{
+   * Sale optionally belongs to a customer.
+   */
+  public function customer(): BelongsTo
+  {
     return $this->belongsTo(
-        Customer::class
+      Customer::class
     );
-}
+  }
 
-/**
- * Payments made against this sale.
- */
-public function payments(): HasMany
-{
+  /**
+   * Payments made against this sale.
+   */
+  public function payments(): HasMany
+  {
     return $this->hasMany(
-        Payment::class
+      Payment::class
     );
-}
+  }
 
-/**
- * Official receipt issued for this sale.
- */
-public function receipt(): HasOne
-{
+  /**
+   * Credit record created for this sale, if applicable.
+   */
+  public function credit(): HasOne
+  {
     return $this->hasOne(
-        Receipt::class
+      Credit::class
     );
-}
+  }
 
+  /**
+   * Official receipt issued for this sale.
+   */
+  public function receipt(): HasOne
+  {
+    return $this->hasOne(
+      Receipt::class
+    );
+  }
+
+  public function branch(): BelongsTo
+{
+    return $this->belongsTo(Branch::class);
+}
 }

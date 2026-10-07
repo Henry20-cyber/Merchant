@@ -4,6 +4,7 @@ namespace App\Domains\Inventory\Models;
 
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +19,7 @@ class Stock extends Model
 
     protected $fillable = [
         'business_id',
+        'branch_id',
         'product_id',
         'quantity',
         'base_quantity',
@@ -41,6 +43,14 @@ class Stock extends Model
     public function business(): BelongsTo
     {
         return $this->belongsTo(Business::class);
+    }
+
+    /**
+     * The branch this stock belongs to.
+     */
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
     }
 
     /**

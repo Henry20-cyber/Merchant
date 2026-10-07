@@ -6,15 +6,18 @@ use App\Domains\Customer\Models\Customer;
 use App\Domains\Customer\Services\CustomerService;
 use App\Domains\Organization\Models\Business;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class CustomerServiceTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
     use RefreshDatabase;
 
     public function test_first_customer_number_is_generated(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $customer = app(CustomerService::class)->create(
             $business,
@@ -29,7 +32,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_numbers_increment_per_business(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -66,8 +69,8 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_numbers_are_scoped_to_business(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -92,9 +95,24 @@ class CustomerServiceTest extends TestCase
         );
     }
 
+    public function test_customer_creation_is_blocked_at_plan_limit(): void
+    {
+        $business = $this->createBusinessWithSubscription([
+            'customer_limit' => 1,
+        ]);
+
+        $service = app(CustomerService::class);
+
+        $service->create($business, []);
+
+        $this->expectException(ValidationException::class);
+
+        $service->create($business, []);
+    }
+
     public function test_customer_data_is_optional(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $customer = app(CustomerService::class)->create(
             $business,
@@ -117,7 +135,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_data_can_be_provided(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $customer = app(CustomerService::class)->create(
             $business,
@@ -145,7 +163,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_number_is_not_reused_after_deletion(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -174,7 +192,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_can_be_updated(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -213,7 +231,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_can_be_deactivated(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -235,8 +253,8 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_from_another_business_cannot_be_updated(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -260,8 +278,8 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_from_another_business_cannot_be_deactivated(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -282,7 +300,7 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_can_be_found_for_business(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 
@@ -305,8 +323,8 @@ class CustomerServiceTest extends TestCase
 
     public function test_customer_from_another_business_cannot_be_found(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $service = app(CustomerService::class);
 

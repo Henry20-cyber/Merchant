@@ -6,6 +6,7 @@ use App\Domains\Payment\Models\PaymentWebhookEvent;
 use App\Domains\Payment\Services\PaymentConfirmationService;
 use App\Domains\Payment\Services\SubscriptionPaymentFailureService;
 use App\Domains\Payment\Services\SubscriptionRenewalService;
+use App\Domains\Subscription\Services\SubscriptionBillingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -23,6 +24,7 @@ class PaystackWebhookController
         private PaymentConfirmationService $confirmationService,
         private SubscriptionRenewalService $renewalService,
         private SubscriptionPaymentFailureService $failureService,
+        private SubscriptionBillingService $billingService,
     ) {
     }
 
@@ -271,6 +273,8 @@ class PaystackWebhookController
                     'charge.success',
                     'charge.failed',
                     'invoice.payment_failed',
+                    'subscription.not_renew',
+                    'subscription.disable',
                 ],
                 true
             )) {
@@ -415,6 +419,45 @@ class PaystackWebhookController
                         'subscription_code' =>
                             $subscriptionCode,
                     ]);
+                }
+            }
+
+            /*
+            |--------------------------------------------------------------------------
+            | Subscription renewal state
+            |--------------------------------------------------------------------------
+            */
+
+            if (in_array(
+                $event,
+                [
+                    'subscription.not_renew',
+                    'subscription.disable',
+                ],
+                true
+            )) {
+                $subscriptionCode =
+                    data_get(
+                        $payload,
+                        'data.subscription_code'
+                    )
+                    ?? data_get(
+                        $payload,
+                        'data.subscription.subscription_code'
+                    );
+
+                if ($subscriptionCode) {
+                    if ($event === 'subscription.not_renew') {
+                        $this->billingService->markNonRenewing(
+                            'paystack',
+                            $subscriptionCode,
+                        );
+                    } else {
+                        $this->billingService->markDisabled(
+                            'paystack',
+                            $subscriptionCode,
+                        );
+                    }
                 }
             }
 

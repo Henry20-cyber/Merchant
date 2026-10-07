@@ -9,6 +9,9 @@ use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Contracts\Auth\CanResetPassword;
+use Illuminate\Auth\Passwords\CanResetPassword as CanResetPasswordTrait;
+use App\Domains\Identity\Notifications\ResetPasswordNotification;
 use App\Domains\Organization\Models\BusinessUser;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Spatie\Permission\Traits\HasRoles;
@@ -27,14 +30,14 @@ use Laravel\Sanctum\HasApiTokens;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['name', 'email', 'password'])]
+#[Fillable(['name', 'email', 'password', 'phone'])]
 #[Hidden(['password', 'remember_token'])]
-class User extends Authenticatable
+class User extends Authenticatable implements CanResetPassword
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, HasRoles;   
+    use HasFactory, Notifiable, HasRoles, CanResetPasswordTrait;
 
-    /** 
+    /**
      * Get the attributes that should be cast.
      *
      * @return array<string, string>
@@ -53,6 +56,14 @@ class User extends Authenticatable
 public function memberships(): HasMany
 {
     return $this->hasMany(BusinessUser::class);
+}
+
+/**
+ * Businesses this user belongs to.
+ */
+public function sendPasswordResetNotification($token): void
+{
+    $this->notify(new ResetPasswordNotification($token));
 }
 
 /**

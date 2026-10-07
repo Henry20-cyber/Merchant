@@ -4,6 +4,7 @@ namespace Tests\Feature\Sales;
 
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Sales\Models\Sale;
@@ -63,8 +64,23 @@ class SaleTest extends TestCase
         ProductUnit $unit,
         float $quantity = 100
     ): Stock {
+        $branch = Branch::firstOrCreate(
+            [
+                'business_id' => $business->id,
+                'code' => 'TEST-' . $business->id,
+            ],
+            [
+                'name' => 'Test Branch',
+                'city' => 'Owerri',
+                'state' => 'Imo',
+                'country' => 'Nigeria',
+                'is_head_office' => true,
+            ]
+        );
+
         return Stock::create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'product_id' => $product->id,
             'quantity' => $quantity,
             'reorder_level' => 10,

@@ -3,18 +3,23 @@
 namespace Tests\Feature\Receipt;
 
 use App\Domains\Identity\Services\RoleService;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
+use App\Domains\Organization\Services\BranchContextService;
 use App\Domains\Receipt\Models\Receipt;
+use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
 
 class ReceiptPdfTest extends TestCase
 {
     use RefreshDatabase;
+    use CreatesSubscriptionForBusiness;
 
     protected function setUp(): void
     {
@@ -25,7 +30,11 @@ class ReceiptPdfTest extends TestCase
 
     private function createBusinessWithOwner(): array
     {
-        $business = Business::factory()->create();
+         $business = $this->createBusinessWithSubscription([
+        'features' => [
+            'receipts' => true,
+        ],
+    ]);
 
         $owner = User::factory()->create();
 
@@ -48,13 +57,51 @@ class ReceiptPdfTest extends TestCase
 
         setPermissionsTeamId($business->id);
 
+        $branch = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $owner,
+            $business,
+            $branch
+        );
+
         return [$business, $owner];
     }
 
-    private function createReceipt(Business $business): Receipt
-    {
+    private function createReceipt(
+        Business $business,
+        User $owner
+    ): Receipt {
+        $branch = Branch::query()
+            ->where('business_id', $business->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        $sale = Sale::factory()->create([
+            'business_id' => $business->id,
+            'branch_id' => $branch->id,
+            'cashier_id' => $owner->id,
+            'status' => 'completed',
+            'payment_status' => 'paid',
+            'payment_method' => 'cash',
+            'subtotal' => 10000,
+            'discount' => 0,
+            'tax' => 0,
+            'total' => 10000,
+        ]);
+
         return Receipt::factory()->create([
             'business_id' => $business->id,
+            'sale_id' => $sale->id,
+            'issued_by' => $owner->id,
         ]);
     }
 
@@ -63,7 +110,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $response = $this
             ->actingAs($owner)
@@ -87,7 +134,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $response = $this
             ->actingAs($owner)
@@ -111,7 +158,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $response = $this
             ->actingAs($owner)
@@ -135,7 +182,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $response = $this
             ->actingAs($owner)
@@ -159,7 +206,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $response = $this
             ->actingAs($owner)
@@ -178,10 +225,21 @@ class ReceiptPdfTest extends TestCase
         [$businessA, $ownerA] =
             $this->createBusinessWithOwner();
 
-        [$businessB] =
+        [$businessB, $ownerB] =
             $this->createBusinessWithOwner();
 
-        $receiptB = $this->createReceipt($businessB);
+        $receiptB = $this->createReceipt($businessB, $ownerB);
+
+        $branchA = Branch::query()
+            ->where('business_id', $businessA->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $ownerA,
+            $businessA,
+            $branchA
+        );
 
         $response = $this
             ->actingAs($ownerA)
@@ -200,7 +258,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $user = User::factory()->create();
 
@@ -221,6 +279,17 @@ class ReceiptPdfTest extends TestCase
 
         setPermissionsTeamId($business->id);
 
+        $branch = Branch::query()
+            ->where('business_id', $business->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
+        );
+
         $response = $this
             ->actingAs($user)
             ->withHeaders([
@@ -238,7 +307,7 @@ class ReceiptPdfTest extends TestCase
         [$business, $owner] =
             $this->createBusinessWithOwner();
 
-        $receipt = $this->createReceipt($business);
+        $receipt = $this->createReceipt($business, $owner);
 
         $cashier = User::factory()->create();
 
@@ -258,6 +327,17 @@ class ReceiptPdfTest extends TestCase
         );
 
         setPermissionsTeamId($business->id);
+
+        $branch = Branch::query()
+            ->where('business_id', $business->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $cashier,
+            $business,
+            $branch
+        );
 
         $response = $this
             ->actingAs($cashier)

@@ -83,9 +83,14 @@ class SubscriptionLifecycleService
                     $subscription->current_period_end !== null &&
                     $subscription->current_period_end->isPast()
                 ) {
-                    $subscription->forceFill([
-                        'status' => 'past_due',
-                    ])->save();
+                    $subscription->forceFill(
+                        $subscription->auto_renew
+                            ? ['status' => 'past_due']
+                            : [
+                                'status' => 'cancelled',
+                                'ended_at' => now(),
+                            ]
+                    )->save();
                 }
 
                 return $subscription->refresh();

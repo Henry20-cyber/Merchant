@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -17,6 +18,25 @@ use Tests\TestCase;
 class SalesDashboardMetricsTest extends TestCase
 {
     use RefreshDatabase;
+
+    private array $branches = [];
+
+    private function branchFor(Business $business): Branch
+    {
+        if (!isset($this->branches[$business->id])) {
+            $this->branches[$business->id] = Branch::create([
+                'business_id' => $business->id,
+                'name' => 'Main Branch',
+                'code' => 'MAIN-' . $business->id,
+                'city' => 'Owerri',
+                'state' => 'Imo',
+                'country' => 'Nigeria',
+                'is_head_office' => true,
+            ]);
+        }
+
+        return $this->branches[$business->id];
+    }
 
     private function createProduct(
         Business $business,
@@ -66,9 +86,12 @@ class SalesDashboardMetricsTest extends TestCase
                 $item['quantity'] * $item['unit_price']
         );
 
+        $branch = $this->branchFor($business);
+
         $sale = new Sale();
 
         $sale->business_id = $business->id;
+        $sale->branch_id = $branch->id;
         $sale->cashier_id = $cashier->id;
         $sale->subtotal = $subtotal;
         $sale->discount = 0;
@@ -103,6 +126,8 @@ class SalesDashboardMetricsTest extends TestCase
     {
         $business = Business::factory()->create();
         $cashier = User::factory()->create();
+
+        $branch = $this->branchFor($business);
 
         [$product, $unit] = $this->createProduct(
             $business,
@@ -146,7 +171,11 @@ class SalesDashboardMetricsTest extends TestCase
 
         $analytics = app(
             SalesAnalyticsService::class
-        )->dashboard($business, $today);
+        )->dashboard(
+            $business,
+            $branch,
+            $today
+        );
 
         $this->assertEquals(
             2,
@@ -168,6 +197,8 @@ class SalesDashboardMetricsTest extends TestCase
     {
         $business = Business::factory()->create();
         $cashier = User::factory()->create();
+
+        $branch = $this->branchFor($business);
 
         [$product, $unit] = $this->createProduct(
             $business,
@@ -216,7 +247,11 @@ class SalesDashboardMetricsTest extends TestCase
 
         $analytics = app(
             SalesAnalyticsService::class
-        )->dashboard($business, $today);
+        )->dashboard(
+            $business,
+            $branch,
+            $today
+        );
 
         $this->assertEquals(
             200000,
@@ -243,6 +278,8 @@ class SalesDashboardMetricsTest extends TestCase
     {
         $business = Business::factory()->create();
         $cashier = User::factory()->create();
+
+        $branch = $this->branchFor($business);
 
         [$product, $unit] = $this->createProduct(
             $business,
@@ -274,7 +311,11 @@ class SalesDashboardMetricsTest extends TestCase
 
         $analytics = app(
             SalesAnalyticsService::class
-        )->dashboard($business, $today);
+        )->dashboard(
+            $business,
+            $branch,
+            $today
+        );
 
         $this->assertEquals(
             10000,
@@ -301,6 +342,8 @@ class SalesDashboardMetricsTest extends TestCase
     {
         $business = Business::factory()->create();
         $cashier = User::factory()->create();
+
+        $branch = $this->branchFor($business);
 
         $service = $this->createService(
             $business,
@@ -331,7 +374,11 @@ class SalesDashboardMetricsTest extends TestCase
 
         $analytics = app(
             SalesAnalyticsService::class
-        )->dashboard($business, $today);
+        )->dashboard(
+            $business,
+            $branch,
+            $today
+        );
 
         $this->assertEquals(
             0,
@@ -361,6 +408,9 @@ class SalesDashboardMetricsTest extends TestCase
 
         $cashierA = User::factory()->create();
         $cashierB = User::factory()->create();
+
+        $branchA = $this->branchFor($businessA);
+        $this->branchFor($businessB);
 
         [$productA, $unitA] = $this->createProduct(
             $businessA,
@@ -410,7 +460,11 @@ class SalesDashboardMetricsTest extends TestCase
 
         $analytics = app(
             SalesAnalyticsService::class
-        )->dashboard($businessA, $today);
+        )->dashboard(
+            $businessA,
+            $branchA,
+            $today
+        );
 
         $this->assertEquals(
             1,
@@ -423,4 +477,3 @@ class SalesDashboardMetricsTest extends TestCase
         );
     }
 }
-

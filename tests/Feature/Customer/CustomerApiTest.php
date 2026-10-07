@@ -11,9 +11,12 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class CustomerApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -28,7 +31,7 @@ class CustomerApiTest extends TestCase
      */
     private function ownerWithBusiness(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = User::factory()->create();
 
@@ -456,7 +459,7 @@ class CustomerApiTest extends TestCase
     {
         [$ownerA, $businessA] = $this->ownerWithBusiness();
 
-        $businessB = Business::factory()->create();
+        $businessB = $this->createBusinessWithSubscription();
 
         $customerB = $this->createCustomer(
             $businessB,
@@ -477,7 +480,7 @@ class CustomerApiTest extends TestCase
     {
         [$ownerA, $businessA] = $this->ownerWithBusiness();
 
-        $businessB = Business::factory()->create();
+        $businessB = $this->createBusinessWithSubscription();
 
         $customerB = $this->createCustomer(
             $businessB,
@@ -507,7 +510,7 @@ class CustomerApiTest extends TestCase
     {
         [$ownerA, $businessA] = $this->ownerWithBusiness();
 
-        $businessB = Business::factory()->create();
+        $businessB = $this->createBusinessWithSubscription();
 
         $customerB = $this->createCustomer(
             $businessB,
@@ -534,7 +537,7 @@ class CustomerApiTest extends TestCase
     {
         [$owner, $businessA] = $this->ownerWithBusiness();
 
-        $businessB = Business::factory()->create();
+        $businessB = $this->createBusinessWithSubscription();
 
         $this->createCustomer(
             $businessA,
@@ -574,7 +577,7 @@ class CustomerApiTest extends TestCase
 
     public function test_unauthenticated_user_cannot_access_customers(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $response = $this->withBusiness($business)
             ->getJson(

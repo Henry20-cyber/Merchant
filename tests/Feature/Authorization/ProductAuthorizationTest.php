@@ -10,9 +10,12 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class ProductAuthorizationTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -24,7 +27,7 @@ class ProductAuthorizationTest extends TestCase
 
     public function test_owner_receives_product_management_permissions(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
         $owner = User::factory()->create();
 
         BusinessUser::create([
@@ -63,7 +66,7 @@ class ProductAuthorizationTest extends TestCase
 
     public function test_manager_can_manage_but_not_delete_products(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
         $manager = User::factory()->create();
 
         BusinessUser::create([
@@ -107,7 +110,7 @@ class ProductAuthorizationTest extends TestCase
 
     public function test_cashier_can_view_but_not_modify_products(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
         $cashier = User::factory()->create();
 
         BusinessUser::create([

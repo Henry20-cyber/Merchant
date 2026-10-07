@@ -7,15 +7,20 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessJoinRequest;
 use App\Domains\Organization\Models\BusinessType;
 use App\Domains\Organization\Models\BusinessUser;
+use App\Domains\Subscription\Models\Subscription;
+use App\Domains\Subscription\Models\SubscriptionPlan;
 use Database\Seeders\PermissionSeeder;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class BusinessJoinRequestControllerTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected Business $business;
@@ -48,6 +53,19 @@ class BusinessJoinRequestControllerTest extends TestCase
             'currency' => 'NGN',
             'timezone' => 'Africa/Lagos',
             'status' => 'trial',
+        ]);
+
+        $plan = SubscriptionPlan::factory()->create([
+            'is_active' => true,
+        ]);
+
+        Subscription::factory()->create([
+            'business_id' => $this->business->id,
+            'plan_id' => $plan->id,
+            'status' => 'trial',
+            'starts_at' => now(),
+            'current_period_start' => now(),
+            'current_period_end' => now()->addMonth(),
         ]);
 
         /*

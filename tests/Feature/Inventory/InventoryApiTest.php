@@ -5,6 +5,8 @@ namespace Tests\Feature\Inventory;
 use App\Domains\Identity\Services\RoleService;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
+use App\Domains\Organization\Services\BranchContextService;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -14,9 +16,12 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class InventoryApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -33,6 +38,23 @@ class InventoryApiTest extends TestCase
          * inventory.transfer
          */
         $this->seed(\Database\Seeders\PermissionSeeder::class);
+    }
+
+    private function branchFor(Business $business): Branch
+    {
+        return Branch::firstOrCreate(
+            [
+                'business_id' => $business->id,
+                'code' => 'MAIN-' . $business->id,
+            ],
+            [
+                'name' => 'Main Branch',
+                'city' => 'Owerri',
+                'state' => 'Imo',
+                'country' => 'Nigeria',
+                'is_head_office' => true,
+            ]
+        );
     }
 
     /*
@@ -98,6 +120,12 @@ class InventoryApiTest extends TestCase
         $owner->unsetRelation('roles');
         $owner->unsetRelation('permissions');
 
+        app(BranchContextService::class)->set(
+            $owner,
+            $business,
+            $this->branchFor($business)
+        );
+
         return $owner;
     }
 
@@ -139,6 +167,12 @@ class InventoryApiTest extends TestCase
 
         $user->unsetRelation('roles');
         $user->unsetRelation('permissions');
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $this->branchFor($business)
+        );
 
         return $user;
     }
@@ -205,7 +239,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_has_inventory_permissions(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -266,7 +300,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_view_inventory(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -279,6 +313,7 @@ class InventoryApiTest extends TestCase
          */
         Stock::create([
             'business_id' => $business->id,
+            'branch_id' => $this->branchFor($business)->id,
             'product_id' => $product->id,
             'quantity' => 50,
             'reorder_level' => 10,
@@ -314,7 +349,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_view_permission_cannot_view_inventory(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -338,7 +373,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_receive_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -390,7 +425,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_receive_permission_cannot_receive_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -421,7 +456,7 @@ class InventoryApiTest extends TestCase
 
     public function test_owner_can_adjust_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -492,7 +527,7 @@ class InventoryApiTest extends TestCase
 
     public function test_user_without_inventory_adjust_permission_cannot_adjust_stock(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createRestrictedUser($business);
 
@@ -529,9 +564,9 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_cannot_access_product_from_another_business(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -566,7 +601,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_rejects_unit_from_another_product(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -616,13 +651,153 @@ class InventoryApiTest extends TestCase
 
     /*
     |--------------------------------------------------------------------------
+    | Branch Isolation and Transfers
+    |--------------------------------------------------------------------------
+    */
+
+    public function test_inventory_is_scoped_to_the_current_branch(): void
+    {
+        $business = $this->createBusinessWithSubscription();
+        $owner = $this->createOwner($business);
+
+        $branchA = $this->branchFor($business);
+        $branchB = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Second Branch',
+            'code' => 'SECOND-' . $business->id,
+            'city' => 'Port Harcourt',
+            'state' => 'Rivers',
+            'country' => 'Nigeria',
+            'is_head_office' => false,
+        ]);
+
+        [$product, $unit] = $this->productWithBaseUnit($business);
+
+        Stock::create([
+            'business_id' => $business->id,
+            'branch_id' => $branchA->id,
+            'product_id' => $product->id,
+            'quantity' => 50,
+            'reorder_level' => 10,
+        ]);
+
+        Stock::create([
+            'business_id' => $business->id,
+            'branch_id' => $branchB->id,
+            'product_id' => $product->id,
+            'quantity' => 100,
+            'reorder_level' => 10,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $owner,
+            $business,
+            $branchA
+        );
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders($this->businessHeaders($business))
+            ->getJson('/api/businesses/current/inventory');
+
+        $response->assertOk();
+
+        $response->assertJsonCount(1, 'data');
+        $response->assertJsonPath('data.0.branch_id', $branchA->id);
+        $response->assertJsonPath('data.0.quantity', '50.0000');
+    }
+
+    public function test_owner_can_transfer_stock_between_branches(): void
+    {
+        $business = $this->createBusinessWithSubscription();
+        $owner = $this->createOwner($business);
+
+        $source = $this->branchFor($business);
+
+        $destination = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Second Branch',
+            'code' => 'SECOND-' . $business->id,
+            'city' => 'Port Harcourt',
+            'state' => 'Rivers',
+            'country' => 'Nigeria',
+            'is_head_office' => false,
+        ]);
+
+        [$product, $unit] = $this->productWithBaseUnit($business);
+
+        Stock::create([
+            'business_id' => $business->id,
+            'branch_id' => $source->id,
+            'product_id' => $product->id,
+            'quantity' => 100,
+            'reorder_level' => 10,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $owner,
+            $business,
+            $source
+        );
+
+        $response = $this
+            ->actingAs($owner)
+            ->withHeaders($this->businessHeaders($business))
+            ->postJson(
+                '/api/businesses/current/inventory/transfer',
+                [
+                    'to_branch_id' => $destination->id,
+                    'product_id' => $product->id,
+                    'product_unit_id' => $unit->id,
+                    'quantity' => 25,
+                    'note' => 'Branch replenishment',
+                ]
+            );
+
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true);
+
+        $this->assertDatabaseHas('stocks', [
+            'business_id' => $business->id,
+            'branch_id' => $source->id,
+            'product_id' => $product->id,
+            'quantity' => 75,
+        ]);
+
+        $this->assertDatabaseHas('stocks', [
+            'business_id' => $business->id,
+            'branch_id' => $destination->id,
+            'product_id' => $product->id,
+            'quantity' => 25,
+        ]);
+
+        $this->assertDatabaseHas('stock_movements', [
+            'business_id' => $business->id,
+            'branch_id' => $source->id,
+            'product_id' => $product->id,
+            'type' => 'transfer_out',
+            'base_quantity' => -25,
+        ]);
+
+        $this->assertDatabaseHas('stock_movements', [
+            'business_id' => $business->id,
+            'branch_id' => $destination->id,
+            'product_id' => $product->id,
+            'type' => 'transfer_in',
+            'base_quantity' => 25,
+        ]);
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | Validation
     |--------------------------------------------------------------------------
     */
 
     public function test_inventory_rejects_zero_quantity(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -647,7 +822,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_rejects_negative_receive_quantity(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -678,7 +853,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_stock_detail_can_be_viewed(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 
@@ -691,6 +866,7 @@ class InventoryApiTest extends TestCase
          */
         $stock = Stock::create([
             'business_id' => $business->id,
+            'branch_id' => $this->branchFor($business)->id,
             'product_id' => $product->id,
             'quantity' => 50,
             'reorder_level' => 10,
@@ -722,7 +898,7 @@ class InventoryApiTest extends TestCase
 
     public function test_inventory_movement_history_can_be_viewed(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = $this->createOwner($business);
 

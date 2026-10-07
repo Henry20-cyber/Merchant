@@ -19,9 +19,15 @@ class ReceiptController extends Controller
     public function index(Request $request): JsonResponse
     {
         $business = $this->currentBusiness($request);
+        $branch = $this->currentBranch($request);
 
         $receipts = Receipt::query()
             ->where('business_id', $business->id)
+            ->whereHas('sale', function ($query) use ($business, $branch) {
+                $query
+                    ->where('business_id', $business->id)
+                    ->where('branch_id', $branch->id);
+            })
             ->with([
                 'sale',
                 'issuedBy:id,name,email',
@@ -45,13 +51,12 @@ class ReceiptController extends Controller
         Receipt $receipt
     ): JsonResponse {
         $business = $this->currentBusiness($request);
+        $branch = $this->currentBranch($request);
 
-        /*
-         * Explicit tenant-isolation check.
-         */
-        abort_unless(
-            $receipt->business_id === $business->id,
-            404
+        $this->assertReceiptBelongsToContext(
+            $receipt,
+            $business,
+            $branch
         );
 
         $receipt->load([
@@ -74,14 +79,12 @@ class ReceiptController extends Controller
         ReceiptHtmlRenderer $renderer
     ): Response {
         $business = $this->currentBusiness($request);
+        $branch = $this->currentBranch($request);
 
-        /*
-         * Never allow a receipt UUID to cross a business
-         * boundary.
-         */
-        abort_unless(
-            $receipt->business_id === $business->id,
-            404
+        $this->assertReceiptBelongsToContext(
+            $receipt,
+            $business,
+            $branch
         );
 
         $format = $request->query(
@@ -131,16 +134,12 @@ class ReceiptController extends Controller
         ReceiptPdfRenderer $renderer
     ): Response {
         $business = $this->currentBusiness($request);
+        $branch = $this->currentBranch($request);
 
-        /*
-         * Explicit tenant-isolation check.
-         *
-         * A receipt UUID must never be sufficient to
-         * access another business's receipt.
-         */
-        abort_unless(
-            $receipt->business_id === $business->id,
-            404
+        $this->assertReceiptBelongsToContext(
+            $receipt,
+            $business,
+            $branch
         );
 
         /*
@@ -172,6 +171,22 @@ class ReceiptController extends Controller
 
         return $pdf->stream(
             $receipt->receipt_number . '.pdf'
+        );
+    }
+
+    private function assertReceiptBelongsToContext(
+        Receipt $receipt,
+        \App\Domains\Organization\Models\Business $business,
+        \App\Domains\Organization\Models\Branch $branch
+    ): void {
+        $receipt->loadMissing('sale');
+
+        abort_unless(
+            $receipt->business_id === $business->id
+            && $receipt->sale
+            && $receipt->sale->business_id === $business->id
+            && $receipt->sale->branch_id === $branch->id,
+            404
         );
     }
 }

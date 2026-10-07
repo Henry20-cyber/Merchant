@@ -2,10 +2,13 @@
 
 namespace App\Domains\Sales\Services;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
+use App\Domains\Expenses\Models\Expense;
 use Carbon\CarbonInterface;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
 class SalesAnalyticsService
@@ -13,22 +16,11 @@ class SalesAnalyticsService
     /**
      * Build the analytics used by the MerchantOS dashboard.
      *
-     * Provides:
-     *
-     * - Daily revenue
-     * - Daily transaction count
-     * - Daily top items
-     * - Weekly revenue
-     * - Weekly transaction count
-     * - Weekly top items
-     * - Monthly revenue
-     * - Monthly transaction count
-     * - Monthly top items
-     * - Overall top three products/services
-     * - Product/service revenue breakdown
+     * Dashboard analytics are scoped to the current branch.
      */
     public function dashboard(
         Business $business,
+        Branch $branch,
         CarbonInterface $date
     ): array {
         $dailyStart = $date->copy()->startOfDay();
@@ -40,94 +32,242 @@ class SalesAnalyticsService
         $monthlyStart = $date->copy()->startOfMonth();
         $monthlyEnd = $date->copy()->endOfMonth();
 
+        // Daily financial metrics
+        $dailyRevenue = $this->revenueBetween(
+            $business,
+            $branch,
+            $dailyStart,
+            $dailyEnd
+        );
+
+        $dailyExpenses = $this->expensesBetween(
+            $business,
+            $branch,
+            $dailyStart,
+            $dailyEnd
+        );
+
+        // Weekly financial metrics
+        $weeklyRevenue = $this->revenueBetween(
+            $business,
+            $branch,
+            $weeklyStart,
+            $weeklyEnd
+        );
+
+        $weeklyExpenses = $this->expensesBetween(
+            $business,
+            $branch,
+            $weeklyStart,
+            $weeklyEnd
+        );
+
+        // Monthly financial metrics
+        $monthlyRevenue = $this->revenueBetween(
+            $business,
+            $branch,
+            $monthlyStart,
+            $monthlyEnd
+        );
+
+        $monthlyExpenses = $this->expensesBetween(
+            $business,
+            $branch,
+            $monthlyStart,
+            $monthlyEnd
+        );
+
         return [
             'daily' => [
-                'revenue' => $this->revenueBetween(
-                    $business,
-                    $dailyStart,
-                    $dailyEnd
-                ),
-
+                'revenue' => $dailyRevenue,
+                'expenses' => $dailyExpenses,
+                'net_result' => $dailyRevenue - $dailyExpenses,
                 'transactions' => $this->transactionsBetween(
                     $business,
+                    $branch,
                     $dailyStart,
                     $dailyEnd
                 ),
-
                 'top_items' => $this->topItemsBetween(
                     $business,
+                    $branch,
                     $dailyStart,
                     $dailyEnd
                 ),
             ],
 
             'weekly' => [
-                'revenue' => $this->revenueBetween(
-                    $business,
-                    $weeklyStart,
-                    $weeklyEnd
-                ),
-
+                'revenue' => $weeklyRevenue,
+                'expenses' => $weeklyExpenses,
+                'net_result' => $weeklyRevenue - $weeklyExpenses,
                 'transactions' => $this->transactionsBetween(
                     $business,
+                    $branch,
                     $weeklyStart,
                     $weeklyEnd
                 ),
-
                 'top_items' => $this->topItemsBetween(
                     $business,
+                    $branch,
                     $weeklyStart,
                     $weeklyEnd
                 ),
             ],
 
             'monthly' => [
-                'revenue' => $this->revenueBetween(
-                    $business,
-                    $monthlyStart,
-                    $monthlyEnd
-                ),
-
+                'revenue' => $monthlyRevenue,
+                'expenses' => $monthlyExpenses,
+                'net_result' => $monthlyRevenue - $monthlyExpenses,
                 'transactions' => $this->transactionsBetween(
                     $business,
+                    $branch,
                     $monthlyStart,
                     $monthlyEnd
                 ),
-
                 'top_items' => $this->topItemsBetween(
                     $business,
+                    $branch,
                     $monthlyStart,
                     $monthlyEnd
                 ),
             ],
 
-            'top_items' => $this->topItems($business),
+            'top_items' => $this->topItems($business, $branch),
 
             'revenue_breakdown' => $this->revenueBreakdown(
-                $business
+                $business,
+                $branch
             ),
         ];
     }
 
     /**
-     * General sales overview.
+     * Dashboard-ready advanced analytics for the current business.
      *
-     * If no date range is supplied, all business sales
-     * are included.
+     * This method intentionally uses aggregate queries instead of issuing
+     * separate queries for every day. The previous implementation performed
+     * two sales queries per day for a 14-day period, which could become very
+     * expensive as the sales table grows.
+     *
+     * This remains business-wide.
      */
+    public function advanced(
+        Business $business,
+        CarbonInterface $date,
+        ?CarbonInterface $startDate = null,
+        ?CarbonInterface $endDate = null,
+    ): array {
+        $start = ($startDate ?? $date->copy()->subDays(13))->startOfDay();
+        $end = ($endDate ?? $date)->endOfDay();
+
+        // One query for all daily revenue + transaction counts in the period.
+        $dailyRows = Sale::query()
+            ->where('business_id', $business->id)
+            ->whereBetween('created_at', [$start, $end])
+            ->selectRaw("DATE(created_at) AS sale_date")
+            ->selectRaw('SUM(total) AS revenue')
+            ->selectRaw('COUNT(*) AS transactions')
+            ->groupByRaw('DATE(created_at)')
+            ->orderBy('sale_date')
+            ->get()
+            ->keyBy(fn($row) => (string) $row->sale_date);
+
+        $dailyExpenseRows = Expense::query()
+            ->where('business_id', $business->id)
+            ->where('status', 'recorded')
+            ->whereBetween('expense_date', [
+                $start->toDateString(),
+                $end->toDateString(),
+            ])
+            ->selectRaw("TO_CHAR(expense_date, 'YYYY-MM-DD') AS expense_date")
+            ->selectRaw('SUM(amount) AS expenses')
+            ->groupByRaw("TO_CHAR(expense_date, 'YYYY-MM-DD')")
+            ->orderBy('expense_date')
+            ->get()
+            ->keyBy(fn($row) => substr((string) $row->expense_date, 0, 10));
+
+        $daily = [];
+
+        for (
+            $cursor = $start->copy();
+            $cursor->lte($end);
+        ) {
+            $dateKey = $cursor->toDateString();
+
+            $row = $dailyRows->get($dateKey);
+            $expenseRow = $dailyExpenseRows->get($dateKey);
+
+            $revenue = $row ? (float) $row->revenue : 0.0;
+            $expenses = $expenseRow ? (float) $expenseRow->expenses : 0.0;
+
+            $daily[] = [
+                'date' => $cursor->format('M j'),
+                'revenue' => $revenue,
+                'expenses' => $expenses,
+                'net_result' => $revenue - $expenses,
+                'transactions' => $row ? (int) $row->transactions : 0,
+            ];
+
+            $cursor = $cursor->copy()->addDay();
+        }
+
+        // One aggregate query for the period total.
+        $periodTotals = Sale::query()
+            ->where('business_id', $business->id)
+            ->whereBetween('created_at', [$start, $end])
+            ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
+            ->selectRaw('COUNT(*) AS transactions')
+            ->first();
+
+        $revenue = (float) ($periodTotals?->revenue ?? 0);
+        $transactions = (int) ($periodTotals?->transactions ?? 0);
+
+        // One aggregate query for top products/services in the same period.
+        $top = $this->topItems($business, null, 8, $start, $end, $revenue);
+
+        // Advanced analytics use the selected period consistently.
+        $expenses = $this->expensesBetween(
+            $business,
+            null,
+            $start,
+            $end
+        );
+
+        $netResult = $revenue - $expenses;
+
+        $revenueBreakdown = $this->revenueBreakdown(
+            $business,
+            null,
+            $start,
+            $end,
+        );
+
+        return [
+            'period' => [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ],
+            'revenue' => $revenue,
+            'expenses' => $expenses,
+            'net_result' => $netResult,
+            'transactions' => $transactions,
+            'average_transaction_value' => $transactions > 0
+                ? round($revenue / $transactions, 2)
+                : 0,
+            'daily' => $daily,
+            'top_items' => $top,
+            'revenue_breakdown' => $revenueBreakdown,
+        ];
+    }
+
     public function overview(
         Business $business,
         ?string $startDate = null,
         ?string $endDate = null
     ): array {
-        $query = Sale::query()
-            ->where('business_id', $business->id);
+        $query = Sale::query()->where('business_id', $business->id);
 
-        $this->applyDateRange(
-            $query,
-            $startDate,
-            $endDate
-        );
+        $this->applyDateRange($query, $startDate, $endDate);
 
         $sales = $query->get();
 
@@ -135,24 +275,8 @@ class SalesAnalyticsService
         $discount = (float) $sales->sum('discount');
         $tax = (float) $sales->sum('tax');
         $total = (float) $sales->sum('total');
-
-        /*
-         * Revenue is sales after discount but before tax.
-         *
-         * Example:
-         *
-         * subtotal = 10,000
-         * discount = 1,000
-         * tax      = 500
-         *
-         * revenue = 9,000
-         */
         $revenue = $grossSales - $discount;
 
-        /*
-         * COGS comes from the historical unit_cost stored
-         * on each SaleItem.
-         */
         $saleIds = $sales->pluck('id');
 
         $items = SaleItem::query()
@@ -160,23 +284,17 @@ class SalesAnalyticsService
             ->get();
 
         $cogs = (float) $items->sum(
-            fn($item) =>
-            (float) $item->quantity *
-                (float) $item->unit_cost
+            fn($item) => (float) $item->quantity * (float) $item->unit_cost
         );
 
         $unitsSold = (int) $items->sum(
-            fn($item) =>
-            (float) $item->quantity
+            fn($item) => (float) $item->quantity
         );
 
         $grossProfit = $revenue - $cogs;
 
         $grossMargin = $revenue > 0
-            ? round(
-                ($grossProfit / $revenue) * 100,
-                2
-            )
+            ? round(($grossProfit / $revenue) * 100, 2)
             : 0.0;
 
         return [
@@ -193,16 +311,6 @@ class SalesAnalyticsService
         ];
     }
 
-    /**
-     * Get top-selling products.
-     *
-     * Ranked by units sold.
-     *
-     * Optional:
-     * - $limit
-     * - $startDate
-     * - $endDate
-     */
     public function topSellingProducts(
         Business $business,
         int $limit = 10,
@@ -210,25 +318,10 @@ class SalesAnalyticsService
         ?string $endDate = null
     ): array {
         $query = SaleItem::query()
-            ->join(
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id'
-            )
-            ->join(
-                'products',
-                'products.id',
-                '=',
-                'sale_items.product_id'
-            )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->whereNotNull(
-                'sale_items.product_id'
-            );
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.business_id', $business->id)
+            ->whereNotNull('sale_items.product_id');
 
         $this->applyDateRangeToQuery(
             $query,
@@ -242,16 +335,9 @@ class SalesAnalyticsService
                 'sale_items.product_id',
                 'products.name as product_name',
             ])
-            ->selectRaw(
-                'SUM(sale_items.quantity) AS units_sold'
-            )
-            ->selectRaw(
-                'SUM(sale_items.total) AS revenue'
-            )
-            ->groupBy(
-                'sale_items.product_id',
-                'products.name'
-            )
+            ->selectRaw('SUM(sale_items.quantity) AS units_sold')
+            ->selectRaw('SUM(sale_items.total) AS revenue')
+            ->groupBy('sale_items.product_id', 'products.name')
             ->orderByDesc('units_sold')
             ->limit($limit)
             ->get()
@@ -267,36 +353,16 @@ class SalesAnalyticsService
             ->all();
     }
 
-    /**
-     * Calculate profitability for each product.
-     *
-     * Ranked by gross profit.
-     */
     public function productProfitability(
         Business $business,
         ?string $startDate = null,
         ?string $endDate = null
     ): array {
         $query = SaleItem::query()
-            ->join(
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id'
-            )
-            ->join(
-                'products',
-                'products.id',
-                '=',
-                'sale_items.product_id'
-            )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->whereNotNull(
-                'sale_items.product_id'
-            );
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.business_id', $business->id)
+            ->whereNotNull('sale_items.product_id');
 
         $this->applyDateRangeToQuery(
             $query,
@@ -310,27 +376,15 @@ class SalesAnalyticsService
                 'sale_items.product_id',
                 'products.name as product_name',
             ])
+            ->selectRaw('SUM(sale_items.quantity) AS units_sold')
+            ->selectRaw('SUM(sale_items.total) AS revenue')
             ->selectRaw(
-                'SUM(sale_items.quantity) AS units_sold'
-            )
-            ->selectRaw(
-                'SUM(sale_items.total) AS revenue'
-            )
-            ->selectRaw(
-                'SUM(
-                    sale_items.quantity * sale_items.unit_cost
-                ) AS cogs'
+                'SUM(sale_items.quantity * sale_items.unit_cost) AS cogs'
             )
             ->selectRaw(
-                'SUM(sale_items.total) -
-                 SUM(
-                    sale_items.quantity * sale_items.unit_cost
-                 ) AS gross_profit'
+                'SUM(sale_items.total) - SUM(sale_items.quantity * sale_items.unit_cost) AS gross_profit'
             )
-            ->groupBy(
-                'sale_items.product_id',
-                'products.name'
-            )
+            ->groupBy('sale_items.product_id', 'products.name')
             ->orderByDesc('gross_profit')
             ->get()
             ->map(function ($row): array {
@@ -346,10 +400,7 @@ class SalesAnalyticsService
                     'cogs' => $cogs,
                     'gross_profit' => $grossProfit,
                     'gross_margin' => $revenue > 0
-                        ? round(
-                            ($grossProfit / $revenue) * 100,
-                            4
-                        )
+                        ? round(($grossProfit / $revenue) * 100, 4)
                         : 0.0,
                 ];
             })
@@ -357,158 +408,73 @@ class SalesAnalyticsService
             ->all();
     }
 
-    /**
-     * Calculate revenue for a business within a date range.
-     */
     private function revenueBetween(
         Business $business,
+        ?Branch $branch,
         CarbonInterface $start,
         CarbonInterface $end
     ): float {
-        return (float) Sale::query()
-            ->where(
-                'business_id',
-                $business->id
-            )
-            ->whereBetween(
-                'created_at',
-                [$start, $end]
-            )
-            ->sum('total');
+        $query = Sale::query()
+            ->where('business_id', $business->id)
+            ->whereBetween('created_at', [$start, $end]);
+
+        if ($branch !== null) {
+            $query->where('branch_id', $branch->id);
+        }
+
+        return (float) $query->sum('total');
     }
 
-    /**
-     * Count transactions within a date range.
-     */
     private function transactionsBetween(
         Business $business,
+        ?Branch $branch,
         CarbonInterface $start,
         CarbonInterface $end
     ): int {
-        return Sale::query()
-            ->where(
-                'business_id',
-                $business->id
-            )
-            ->whereBetween(
-                'created_at',
-                [$start, $end]
-            )
-            ->count();
+        $query = Sale::query()
+            ->where('business_id', $business->id)
+            ->whereBetween('created_at', [$start, $end]);
+
+        if ($branch !== null) {
+            $query->where('branch_id', $branch->id);
+        }
+
+        return $query->count();
     }
 
-    /**
-     * Get the top three products/services within a period.
-     */
     private function topItemsBetween(
         Business $business,
+        Branch $branch,
         CarbonInterface $start,
         CarbonInterface $end
     ): array {
-        $rows = SaleItem::query()
-            ->join(
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id'
-            )
-            ->leftJoin(
-                'products',
-                'products.id',
-                '=',
-                'sale_items.product_id'
-            )
-            ->leftJoin(
-                'services',
-                'services.id',
-                '=',
-                'sale_items.service_id'
-            )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->whereBetween(
-                'sales.created_at',
-                [$start, $end]
-            )
-            ->selectRaw("
-                CASE
-                    WHEN sale_items.service_id IS NULL
-                    THEN 'product'
-                    ELSE 'service'
-                END AS item_type
-            ")
-            ->selectRaw("
-                COALESCE(
-                    products.name,
-                    services.name
-                ) AS name
-            ")
-            ->selectRaw(
-                'SUM(sale_items.quantity) AS units_sold'
-            )
-            ->selectRaw(
-                'SUM(sale_items.total) AS revenue'
-            )
-            ->groupBy(
-                'sale_items.product_id',
-                'sale_items.service_id',
-                'products.name',
-                'services.name'
-            )
-            ->orderByDesc('revenue')
-            ->limit(3)
-            ->get();
+        $periodRevenue = $this->revenueBetween(
+            $business,
+            $branch,
+            $start,
+            $end
+        );
 
-        $periodRevenue = (float) Sale::query()
-            ->where(
-                'business_id',
-                $business->id
-            )
-            ->whereBetween(
-                'created_at',
-                [$start, $end]
-            )
-            ->sum('total');
-
-        return $rows
-            ->map(function ($row) use ($periodRevenue): array {
-                $revenue = (float) $row->revenue;
-
-                $percentage = $periodRevenue > 0
-                    ? round(
-                        ($revenue / $periodRevenue) * 100,
-                        1
-                    )
-                    : 0.0;
-
-                return [
-                    'item_type' => $row->item_type,
-                    'type' => $row->item_type,
-                    'name' => $row->name,
-                    'units_sold' => (float) $row->units_sold,
-                    'revenue' => $revenue,
-                    'percentage' => $percentage,
-                ];
-            })
-            ->values()
-            ->all();
+        return $this->topItems(
+            $business,
+            $branch,
+            3,
+            $start,
+            $end,
+            $periodRevenue
+        );
     }
 
-    /**
-     * Get the overall top three products/services.
-     */
     private function topItems(
-        Business $business
+        Business $business,
+        ?Branch $branch = null,
+        int $limit = 3,
+        ?CarbonInterface $start = null,
+        ?CarbonInterface $end = null,
+        ?float $grandRevenue = null
     ): array {
-        $rows = SaleItem::query()
-            ->join(
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id'
-            )
+        $query = SaleItem::query()
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
             ->leftJoin(
                 'products',
                 'products.id',
@@ -521,29 +487,25 @@ class SalesAnalyticsService
                 '=',
                 'sale_items.service_id'
             )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->selectRaw("
-                CASE
-                    WHEN sale_items.service_id IS NULL
-                    THEN 'product'
-                    ELSE 'service'
-                END AS item_type
-            ")
-            ->selectRaw("
-                COALESCE(
-                    products.name,
-                    services.name
-                ) AS name
-            ")
+            ->where('sales.business_id', $business->id);
+
+        if ($branch !== null) {
+            $query->where('sales.branch_id', $branch->id);
+        }
+
+        if ($start !== null && $end !== null) {
+            $query->whereBetween('sales.created_at', [$start, $end]);
+        }
+
+        $rows = $query
             ->selectRaw(
-                'SUM(sale_items.quantity) AS units_sold'
+                "CASE WHEN sale_items.service_id IS NULL THEN 'product' ELSE 'service' END AS item_type"
             )
             ->selectRaw(
-                'SUM(sale_items.total) AS revenue'
+                'COALESCE(products.name, services.name) AS name'
             )
+            ->selectRaw('SUM(sale_items.quantity) AS units_sold')
+            ->selectRaw('SUM(sale_items.total) AS revenue')
             ->groupBy(
                 'sale_items.product_id',
                 'sale_items.service_id',
@@ -551,134 +513,117 @@ class SalesAnalyticsService
                 'services.name'
             )
             ->orderByDesc('revenue')
-            ->limit(3)
+            ->limit($limit)
             ->get();
 
-        $grandRevenue = (float) Sale::query()
-            ->where(
-                'business_id',
-                $business->id
-            )
-            ->sum('total');
+        if ($grandRevenue === null) {
+            $revenueQuery = Sale::query()
+                ->where('business_id', $business->id);
+
+            if ($branch !== null) {
+                $revenueQuery->where('branch_id', $branch->id);
+            }
+
+            if ($start !== null && $end !== null) {
+                $revenueQuery->whereBetween(
+                    'created_at',
+                    [$start, $end]
+                );
+            }
+
+            $grandRevenue = (float) $revenueQuery->sum('total');
+        }
 
         return $rows
             ->map(function ($row) use ($grandRevenue): array {
                 $revenue = (float) $row->revenue;
 
-                $percentage = $grandRevenue > 0
-                    ? round(
-                        ($revenue / $grandRevenue) * 100,
-                        1
-                    )
-                    : 0.0;
-
                 return [
                     'item_type' => $row->item_type,
                     'type' => $row->item_type,
                     'name' => $row->name,
                     'units_sold' => (float) $row->units_sold,
                     'revenue' => $revenue,
-                    'percentage' => $percentage,
+                    'percentage' => $grandRevenue > 0
+                        ? round(($revenue / $grandRevenue) * 100, 1)
+                        : 0.0,
                 ];
             })
             ->values()
             ->all();
     }
 
-    /**
-     * Product versus service revenue.
-     */
     private function revenueBreakdown(
-        Business $business
+        Business $business,
+        ?Branch $branch = null,
+        ?CarbonInterface $start = null,
+        ?CarbonInterface $end = null
     ): array {
-        $productRevenue = (float) SaleItem::query()
+        $query = SaleItem::query()
             ->join(
                 'sales',
                 'sales.id',
                 '=',
                 'sale_items.sale_id'
             )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->whereNotNull(
-                'sale_items.product_id'
-            )
-            ->sum('sale_items.total');
+            ->where('sales.business_id', $business->id);
 
-        $serviceRevenue = (float) SaleItem::query()
-            ->join(
-                'sales',
-                'sales.id',
-                '=',
-                'sale_items.sale_id'
-            )
-            ->where(
-                'sales.business_id',
-                $business->id
-            )
-            ->whereNotNull(
-                'sale_items.service_id'
-            )
-            ->sum('sale_items.total');
+        if ($branch !== null) {
+            $query->where('sales.branch_id', $branch->id);
+        }
 
+        if ($start !== null && $end !== null) {
+            $query->whereBetween(
+                'sales.created_at',
+                [$start, $end]
+            );
+        }
+
+        // One query replaces the previous two independent aggregate queries.
+        $row = $query
+            ->selectRaw(
+                "COALESCE(SUM(CASE WHEN sale_items.product_id IS NOT NULL THEN sale_items.total ELSE 0 END), 0) AS product_revenue"
+            )
+            ->selectRaw(
+                "COALESCE(SUM(CASE WHEN sale_items.service_id IS NOT NULL THEN sale_items.total ELSE 0 END), 0) AS service_revenue"
+            )
+            ->first();
+
+        $productRevenue = (float) ($row?->product_revenue ?? 0);
+        $serviceRevenue = (float) ($row?->service_revenue ?? 0);
         $total = $productRevenue + $serviceRevenue;
 
         return [
             'products' => [
                 'revenue' => $productRevenue,
                 'percentage' => $total > 0
-                    ? round(
-                        ($productRevenue / $total) * 100,
-                        1
-                    )
+                    ? round(($productRevenue / $total) * 100, 1)
                     : 0.0,
             ],
-
             'services' => [
                 'revenue' => $serviceRevenue,
                 'percentage' => $total > 0
-                    ? round(
-                        ($serviceRevenue / $total) * 100,
-                        1
-                    )
+                    ? round(($serviceRevenue / $total) * 100, 1)
                     : 0.0,
             ],
-
             'total' => $total,
         ];
     }
 
-    /**
-     * Apply an optional date range to an Eloquent query.
-     */
     private function applyDateRange(
         $query,
         ?string $startDate,
         ?string $endDate
     ): void {
         if ($startDate !== null) {
-            $query->whereDate(
-                'created_at',
-                '>=',
-                $startDate
-            );
+            $query->whereDate('created_at', '>=', $startDate);
         }
 
         if ($endDate !== null) {
-            $query->whereDate(
-                'created_at',
-                '<=',
-                $endDate
-            );
+            $query->whereDate('created_at', '<=', $endDate);
         }
     }
 
-    /**
-     * Apply an optional date range to a query using
-     * a qualified datetime column.
-     */
     private function applyDateRangeToQuery(
         $query,
         ?string $startDate,
@@ -686,19 +631,39 @@ class SalesAnalyticsService
         string $column
     ): void {
         if ($startDate !== null) {
-            $query->whereDate(
-                $column,
-                '>=',
-                $startDate
-            );
+            $query->whereDate($column, '>=', $startDate);
         }
 
         if ($endDate !== null) {
-            $query->whereDate(
-                $column,
-                '<=',
-                $endDate
-            );
+            $query->whereDate($column, '<=', $endDate);
         }
+    }
+
+    private function expensesBetween(
+        Business $business,
+        ?Branch $branch,
+        CarbonInterface $start,
+        CarbonInterface $end
+    ): float {
+        $query = Expense::query()
+            ->where('business_id', $business->id)
+            ->where('status', 'recorded')
+            ->whereBetween('expense_date', [
+                $start->toDateString(),
+                $end->toDateString(),
+            ]);
+
+        /*
+         * The dashboard is branch-scoped.
+         *
+         * However, branch_id is currently nullable on expenses,
+         * so only explicitly assigned branch expenses are included
+         * when a branch context is active.
+         */
+        if ($branch !== null) {
+            $query->where('branch_id', $branch->id);
+        }
+
+        return (float) $query->sum('amount');
     }
 }

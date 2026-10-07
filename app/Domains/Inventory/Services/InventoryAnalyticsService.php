@@ -5,6 +5,7 @@ namespace App\Domains\Inventory\Services;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -18,32 +19,38 @@ class InventoryAnalyticsService
     public function overview(
         Business $business,
         ?Carbon $from = null,
-        ?Carbon $to = null
+        ?Carbon $to = null,
+        ?Branch $branch = null
     ): array {
         return [
-            'overview' => $this->overviewMetrics($business),
+            'overview' => $this->overviewMetrics($business, $branch),
 
             'movement_summary' => $this->movementSummary(
                 $business,
                 $from,
-                $to
+                $to,
+                $branch
             ),
 
             'top_products' => $this->topSellingProducts(
                 $business,
                 $from,
-                $to
+                $to,
+                10,
+                $branch
             ),
 
             'slow_products' => $this->slowMovingProducts(
                 $business,
                 $from,
-                $to
+                $to,
+                10,
+                $branch
             ),
 
-            'low_stock' => $this->lowStockProducts($business),
+            'low_stock' => $this->lowStockProducts($business, $branch),
 
-            'out_of_stock' => $this->outOfStockProducts($business),
+            'out_of_stock' => $this->outOfStockProducts($business, $branch),
         ];
     }
 
@@ -52,10 +59,14 @@ class InventoryAnalyticsService
      *
      * Stock quantity is stored in canonical base units.
      */
-    public function overviewMetrics(Business $business): array
+    public function overviewMetrics(Business $business, ?Branch $branch = null): array
     {
         $stocks = Stock::query()
             ->where('business_id', $business->id);
+
+        if ($branch) {
+            $stocks->where('branch_id', $branch->id);
+        }
 
         $products = DB::table('products')
             ->where('business_id', $business->id)
@@ -107,10 +118,15 @@ class InventoryAnalyticsService
     public function movementSummary(
         Business $business,
         ?Carbon $from = null,
-        ?Carbon $to = null
+        ?Carbon $to = null,
+        ?Branch $branch = null
     ): array {
         $query = StockMovement::query()
             ->where('business_id', $business->id);
+
+        if ($branch) {
+            $query->where('branch_id', $branch->id);
+        }
 
         $this->applyDateRange($query, $from, $to);
 
@@ -145,7 +161,8 @@ class InventoryAnalyticsService
         Business $business,
         ?Carbon $from = null,
         ?Carbon $to = null,
-        int $limit = 10
+        int $limit = 10,
+        ?Branch $branch = null
     ): Collection {
         $query = StockMovement::query()
             ->select('product_id')
@@ -154,6 +171,10 @@ class InventoryAnalyticsService
             )
             ->where('business_id', $business->id)
             ->where('type', 'sale');
+
+        if ($branch) {
+            $query->where('branch_id', $branch->id);
+        }
 
         $this->applyDateRange($query, $from, $to);
 
@@ -186,7 +207,8 @@ class InventoryAnalyticsService
         Business $business,
         ?Carbon $from = null,
         ?Carbon $to = null,
-        int $limit = 10
+        int $limit = 10,
+        ?Branch $branch = null
     ): Collection {
         $salesQuery = StockMovement::query()
             ->select('product_id')
@@ -196,6 +218,10 @@ class InventoryAnalyticsService
             ->where('business_id', $business->id)
             ->where('type', 'sale');
 
+        if ($branch) {
+            $salesQuery->where('branch_id', $branch->id);
+        }
+
         $this->applyDateRange($salesQuery, $from, $to);
 
         $sales = $salesQuery
@@ -204,7 +230,13 @@ class InventoryAnalyticsService
             ->keyBy('product_id');
 
         $stocks = Stock::query()
-            ->where('business_id', $business->id)
+            ->where('business_id', $business->id);
+
+        if ($branch) {
+            $stocks->where('branch_id', $branch->id);
+        }
+
+        $stocks = $stocks
             ->with([
                 'product:id,name,sku',
             ])
@@ -237,10 +269,12 @@ class InventoryAnalyticsService
      * Products below their configured reorder level.
      */
     public function lowStockProducts(
-        Business $business
+        Business $business,
+        ?Branch $branch = null
     ): Collection {
         return Stock::query()
             ->where('business_id', $business->id)
+            ->when($branch, fn ($query) => $query->where('branch_id', $branch->id))
             ->where('reorder_level', '>', 0)
             ->whereColumn('quantity', '<=', 'reorder_level')
             ->where('quantity', '>', 0)
@@ -266,10 +300,12 @@ class InventoryAnalyticsService
      * Products with no available stock.
      */
     public function outOfStockProducts(
-        Business $business
+        Business $business,
+        ?Branch $branch = null
     ): Collection {
         return Stock::query()
             ->where('business_id', $business->id)
+            ->when($branch, fn ($query) => $query->where('branch_id', $branch->id))
             ->where('quantity', '<=', 0)
             ->with([
                 'product:id,name,sku',

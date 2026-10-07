@@ -2,6 +2,7 @@
 
 namespace App\Domains\Sales\Services;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Sales\Models\Sale;
 use Illuminate\Support\Collection;
@@ -14,8 +15,13 @@ class SaleSearchService
      */
     public function search(
         Business $business,
+        Branch $branch,
         string $search
     ): array {
+        if ($branch->business_id !== $business->id) {
+            abort(403, 'Branch does not belong to this business.');
+        }
+
         $search = trim($search);
 
         if ($search === '') {
@@ -24,6 +30,7 @@ class SaleSearchService
 
         $sales = Sale::query()
             ->where('business_id', $business->id)
+            ->where('branch_id', $branch->id)
             ->whereHas('items', function ($query) use ($search) {
                 $query->where(function ($query) use ($search) {
                     $query

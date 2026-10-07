@@ -279,6 +279,19 @@ class OPayGateway implements PaymentGateway
     }
 
     /**
+     * OPay recurring subscriptions are not implemented
+     * through this adapter yet.
+     */
+    public function enableSubscription(
+        string $subscriptionCode,
+        string $emailToken
+    ): array {
+        throw new RuntimeException(
+            'OPay recurring subscriptions are not implemented yet.'
+        );
+    }
+
+    /**
      * Generate OPay HMAC-SHA512 request signature.
      */
     private function generateSignature(array $payload): string

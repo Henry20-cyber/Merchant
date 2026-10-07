@@ -5,6 +5,7 @@ namespace Tests\Feature\Sales;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -44,8 +45,8 @@ class SaleCustomerTest extends TestCase
 
         Stock::create([
             'business_id' => $business->id,
+            'branch_id' => $this->createBranchFor($business)->id,
             'product_id' => $product->id,
-            'product_unit_id' => $unit->id,
             'quantity' => 100,
             'reorder_level' => 10,
         ]);
@@ -124,6 +125,8 @@ class SaleCustomerTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+       $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         [$product, $unit] = $this->createProductWithStock(
@@ -132,6 +135,7 @@ class SaleCustomerTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             $this->saleItems($product, $unit)
         );
@@ -144,9 +148,15 @@ class SaleCustomerTest extends TestCase
             $sale->customer
         );
 
+        $this->assertEquals(
+            $branch->id,
+            $sale->branch_id
+        );
+
         $this->assertDatabaseHas('sales', [
             'id' => $sale->id,
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'customer_id' => null,
         ]);
     }
@@ -159,6 +169,8 @@ class SaleCustomerTest extends TestCase
         $business = Business::factory()->create();
 
         $this->createSubscriptionFor($business);
+
+       $branch = $this->createBranchFor($business);
 
         $cashier = $this->createCashierFor($business);
 
@@ -173,6 +185,7 @@ class SaleCustomerTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             $this->saleItems($product, $unit),
             [
@@ -189,9 +202,15 @@ class SaleCustomerTest extends TestCase
             $sale->customer->is($customer)
         );
 
+        $this->assertEquals(
+            $branch->id,
+            $sale->branch_id
+        );
+
         $this->assertDatabaseHas('sales', [
             'id' => $sale->id,
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'customer_id' => $customer->id,
         ]);
     }
@@ -205,6 +224,8 @@ class SaleCustomerTest extends TestCase
         $businessA = Business::factory()->create();
 
         $this->createSubscriptionFor($businessA);
+
+        $branch = $this->createBranchFor($businessA);
 
         $businessB = Business::factory()->create();
 
@@ -222,6 +243,7 @@ class SaleCustomerTest extends TestCase
         try {
             app(SaleService::class)->create(
                 $businessA,
+                $branch,
                 $cashier,
                 $this->saleItems($product, $unit),
                 [
@@ -255,6 +277,8 @@ class SaleCustomerTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+       $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         $customer = Customer::factory()->create([
@@ -269,6 +293,7 @@ class SaleCustomerTest extends TestCase
         try {
             app(SaleService::class)->create(
                 $business,
+                $branch,
                 $cashier,
                 $this->saleItems($product, $unit),
                 [
@@ -291,4 +316,23 @@ class SaleCustomerTest extends TestCase
             'customer_id' => $customer->id,
         ]);
     }
+
+    private function createBranchFor(
+    Business $business
+): Branch {
+    return Branch::firstOrCreate(
+        [
+            'business_id' => $business->id,
+            'code' => 'TEST-' . $business->id,
+        ],
+        [
+        'business_id' => $business->id,
+        'name' => 'Test Branch',
+        'code' => 'TEST-' . $business->id,
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => true,
+    ]);
+}
 }

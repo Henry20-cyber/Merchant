@@ -6,6 +6,7 @@ use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Inventory\Services\InventoryAnalyticsService;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -15,6 +16,14 @@ use Tests\TestCase;
 class InventoryAnalyticsTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function branchFor(Business $business, string $suffix = 'MAIN'): Branch
+    {
+        return Branch::firstOrCreate(
+            ['business_id' => $business->id, 'code' => $suffix . '-' . $business->id],
+            ['name' => $suffix === 'MAIN' ? 'Main Branch' : $suffix, 'city' => 'Owerri', 'state' => 'Imo', 'country' => 'Nigeria', 'is_head_office' => $suffix === 'MAIN']
+        );
+    }
 
     private function createProductWithBaseUnit(
         Business $business,
@@ -51,6 +60,7 @@ class InventoryAnalyticsTest extends TestCase
     ): Stock {
         return Stock::create([
             'business_id' => $business->id,
+            'branch_id' => $this->branchFor($business)->id,
             'product_id' => $product->id,
             'quantity' => $quantity,
             'reorder_level' => $reorderLevel,
@@ -85,6 +95,7 @@ class InventoryAnalyticsTest extends TestCase
 
     $movement = StockMovement::create([
         'business_id' => $business->id,
+        'branch_id' => $stock->branch_id,
         'product_id' => $product->id,
         'product_unit_id' => $unit->id,
         'stock_id' => $stock->id,
@@ -459,6 +470,48 @@ class InventoryAnalyticsTest extends TestCase
             50,
             $products->first()['current_stock']
         );
+    }
+
+    public function test_branch_analytics_only_include_the_current_branch(): void
+    {
+        $business = Business::factory()->create();
+
+        $branchA = $this->branchFor($business, 'A');
+        $branchB = $this->branchFor($business, 'B');
+
+        [$product, $unit] = $this->createProductWithBaseUnit(
+            $business,
+            'Branch Product',
+            'BRANCH-001'
+        );
+
+        Stock::create([
+            'business_id' => $business->id,
+            'branch_id' => $branchA->id,
+            'product_id' => $product->id,
+            'quantity' => 50,
+            'reorder_level' => 10,
+        ]);
+
+        Stock::create([
+            'business_id' => $business->id,
+            'branch_id' => $branchB->id,
+            'product_id' => $product->id,
+            'quantity' => 500,
+            'reorder_level' => 10,
+        ]);
+
+        $analytics = app(InventoryAnalyticsService::class)
+            ->overview($business, null, null, $branchA);
+
+        $this->assertEquals(50, $analytics['overview']['units_in_stock']);
+
+        $branchMovements = StockMovement::query()
+            ->where('business_id', $business->id)
+            ->where('branch_id', $branchA->id)
+            ->get();
+
+        $this->assertCount(0, $branchMovements);
     }
 
     public function test_analytics_are_scoped_to_the_business(): void

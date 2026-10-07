@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
@@ -19,6 +20,7 @@ class SaleSearchTest extends TestCase
 
     private function createSale(
         Business $business,
+        Branch $branch,
         User $cashier,
         Product $product,
         ProductUnit $unit,
@@ -29,6 +31,7 @@ class SaleSearchTest extends TestCase
 
         $sale = Sale::create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'cashier_id' => $cashier->id,
             'subtotal' => $total,
             'discount' => 0,
@@ -53,6 +56,15 @@ class SaleSearchTest extends TestCase
     public function test_search_finds_sales_by_product_name(): void
     {
         $business = Business::factory()->create();
+        $branch = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
 
         $cashier = User::factory()->create([
             'name' => 'John Cashier',
@@ -92,6 +104,7 @@ class SaleSearchTest extends TestCase
 
         $cocaSale = $this->createSale(
             $business,
+            $branch,
             $cashier,
             $cocaCola,
             $cocaUnit,
@@ -101,6 +114,7 @@ class SaleSearchTest extends TestCase
 
         $this->createSale(
             $business,
+            $branch,
             $cashier,
             $peakMilk,
             $peakUnit,
@@ -109,7 +123,7 @@ class SaleSearchTest extends TestCase
         );
 
         $results = app(SaleSearchService::class)
-            ->search($business, 'Coca-Cola');
+            ->search($business, $branch, 'Coca-Cola');
 
         $this->assertCount(1, $results);
 
@@ -143,6 +157,25 @@ class SaleSearchTest extends TestCase
     {
         $businessA = Business::factory()->create();
         $businessB = Business::factory()->create();
+
+        $branchA = Branch::create([
+            'business_id' => $businessA->id,
+            'name' => 'Main A',
+            'code' => 'MAIN-' . $businessA->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+        $branchB = Branch::create([
+            'business_id' => $businessB->id,
+            'name' => 'Main B',
+            'code' => 'MAIN-' . $businessB->id,
+            'city' => 'Port Harcourt',
+            'state' => 'Rivers',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
 
         $cashierA = User::factory()->create();
         $cashierB = User::factory()->create();
@@ -181,6 +214,7 @@ class SaleSearchTest extends TestCase
 
         $saleA = $this->createSale(
             $businessA,
+            $branchA,
             $cashierA,
             $productA,
             $unitA,
@@ -190,6 +224,7 @@ class SaleSearchTest extends TestCase
 
         $this->createSale(
             $businessB,
+            $branchB,
             $cashierB,
             $productB,
             $unitB,
@@ -198,7 +233,7 @@ class SaleSearchTest extends TestCase
         );
 
         $results = app(SaleSearchService::class)
-            ->search($businessA, 'Coca-Cola');
+            ->search($businessA, $branchA, 'Coca-Cola');
 
         $this->assertCount(1, $results);
 
@@ -216,6 +251,15 @@ class SaleSearchTest extends TestCase
     public function test_search_finds_sales_by_service_name(): void
 {
     $business = Business::factory()->create();
+    $branch = Branch::create([
+        'business_id' => $business->id,
+        'name' => 'Main Branch',
+        'code' => 'MAIN-' . $business->id,
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => true,
+    ]);
 
     $cashier = User::factory()->create([
         'name' => 'Jane Cashier',
@@ -230,6 +274,7 @@ class SaleSearchTest extends TestCase
 
     $sale = Sale::create([
         'business_id' => $business->id,
+        'branch_id' => $branch->id,
         'cashier_id' => $cashier->id,
         'subtotal' => 10000,
         'discount' => 0,
@@ -250,7 +295,7 @@ class SaleSearchTest extends TestCase
     ]);
 
     $results = app(SaleSearchService::class)
-        ->search($business, 'Wig');
+        ->search($business, $branch, 'Wig');
 
     $this->assertCount(1, $results);
 
@@ -283,6 +328,15 @@ class SaleSearchTest extends TestCase
 public function test_search_finds_product_or_service_in_mixed_sale(): void
 {
     $business = Business::factory()->create();
+    $branch = Branch::create([
+        'business_id' => $business->id,
+        'name' => 'Main Branch',
+        'code' => 'MAIN-' . $business->id,
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => true,
+    ]);
 
     $cashier = User::factory()->create();
 
@@ -311,6 +365,7 @@ public function test_search_finds_product_or_service_in_mixed_sale(): void
 
     $sale = Sale::create([
         'business_id' => $business->id,
+        'branch_id' => $branch->id,
         'cashier_id' => $cashier->id,
         'subtotal' => 11000,
         'discount' => 0,
@@ -343,7 +398,7 @@ public function test_search_finds_product_or_service_in_mixed_sale(): void
     ]);
 
     $productResults = app(SaleSearchService::class)
-        ->search($business, 'Coca');
+        ->search($business, $branch, 'Coca');
 
     $this->assertCount(1, $productResults);
 
@@ -358,7 +413,7 @@ public function test_search_finds_product_or_service_in_mixed_sale(): void
     );
 
     $serviceResults = app(SaleSearchService::class)
-        ->search($business, 'Wig');
+        ->search($business, $branch, 'Wig');
 
     $this->assertCount(1, $serviceResults);
 
@@ -372,6 +427,71 @@ public function test_search_finds_product_or_service_in_mixed_sale(): void
         $serviceResults[0]['item_name']
     );
 }
+    public function test_search_is_scoped_to_current_branch(): void
+    {
+        $business = Business::factory()->create();
+        $branchA = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+        $branchB = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Second Branch',
+            'code' => 'SECOND-' . $business->id,
+            'city' => 'Port Harcourt',
+            'state' => 'Rivers',
+            'country' => 'Nigeria',
+            'is_head_office' => false,
+        ]);
+
+        $cashier = User::factory()->create();
+        $product = Product::factory()->create([
+            'business_id' => $business->id,
+            'name' => 'Coca-Cola',
+        ]);
+        $unit = ProductUnit::factory()->create([
+            'business_id' => $business->id,
+            'product_id' => $product->id,
+            'quantity' => 1,
+            'cost_price' => 600,
+            'selling_price' => 1000,
+            'is_base_unit' => true,
+            'is_sellable' => true,
+            'is_purchasable' => true,
+        ]);
+
+        $saleA = $this->createSale(
+            $business,
+            $branchA,
+            $cashier,
+            $product,
+            $unit,
+            2,
+            1000
+        );
+
+        $this->createSale(
+            $business,
+            $branchB,
+            $cashier,
+            $product,
+            $unit,
+            5,
+            1000
+        );
+
+        $results = app(SaleSearchService::class)
+            ->search($business, $branchA, 'Coca-Cola');
+
+        $this->assertCount(1, $results);
+        $this->assertSame($saleA->id, $results[0]['sale_id']);
+    }
+
 }
 
 

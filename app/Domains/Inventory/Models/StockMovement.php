@@ -4,6 +4,7 @@ namespace App\Domains\Inventory\Models;
 
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Models\User;
@@ -19,6 +20,7 @@ class StockMovement extends Model
 
     protected $fillable = [
         'business_id',
+        'branch_id',
         'product_id',
         'product_unit_id',
         'stock_id',
@@ -48,6 +50,11 @@ class StockMovement extends Model
     public function business(): BelongsTo
     {
         return $this->belongsTo(Business::class);
+    }
+
+    public function branch(): BelongsTo
+    {
+        return $this->belongsTo(Branch::class);
     }
 
     public function product(): BelongsTo

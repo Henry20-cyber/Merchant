@@ -3,6 +3,7 @@
 namespace App\Domains\Organization\Services;
 
 use App\Domains\Identity\Services\RoleService;
+use App\Domains\Subscription\Services\SubscriptionLimitService;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessJoinRequest;
 use App\Domains\Organization\Models\BusinessUser;
@@ -17,6 +18,7 @@ class BusinessJoinRequestService
 {
     public function __construct(
         private RoleService $roleService,
+        private SubscriptionLimitService $subscriptionLimitService,
     ) {}
 
     /**
@@ -218,6 +220,13 @@ class BusinessJoinRequestService
                     'request' => 'This user is already an active member of the business.',
                 ]);
             }
+
+            /*
+             * A new active membership consumes one user seat.
+             * Existing active members are rejected above, so this
+             * check only runs for a new/reactivated seat.
+             */
+            $this->subscriptionLimitService->ensureUserCapacity($business);
 
             /*
              * Create or reactivate the business membership first.

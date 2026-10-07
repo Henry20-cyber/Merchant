@@ -72,4 +72,17 @@ interface PaymentGateway
         string $subscriptionCode,
         string $emailToken
     ): array;
+
+    /**
+     * Re-enable a recurring subscription.
+     *
+     * @return array{
+     *     success: bool,
+     *     raw: array
+     * }
+     */
+    public function enableSubscription(
+        string $subscriptionCode,
+        string $emailToken
+    ): array;
 }

@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Sales;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
+use App\Domains\Organization\Services\BranchContextService;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Service\Models\Service;
@@ -14,10 +16,31 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class SalesDashboardApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
     use RefreshDatabase;
+
+    private array $branches = [];
+
+    private function branchFor(Business $business): Branch
+    {
+        if (!isset($this->branches[$business->id])) {
+            $this->branches[$business->id] = Branch::create([
+                'business_id' => $business->id,
+                'name' => 'Main Branch',
+                'code' => 'MAIN-' . $business->id,
+                'city' => 'Owerri',
+                'state' => 'Imo',
+                'country' => 'Nigeria',
+                'is_head_office' => true,
+            ]);
+        }
+
+        return $this->branches[$business->id];
+    }
 
     private function createBusinessMember(
         Business $business,
@@ -97,10 +120,13 @@ class SalesDashboardApiTest extends TestCase
         float $quantity,
         float $unitPrice
     ): Sale {
+        $branch = $this->branchFor($business);
+
         $total = $quantity * $unitPrice;
 
         $sale = Sale::create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'cashier_id' => $cashier->id,
             'subtotal' => $total,
             'discount' => 0,
@@ -132,11 +158,14 @@ class SalesDashboardApiTest extends TestCase
         Service $service,
         float $quantity
     ): Sale {
+        $branch = $this->branchFor($business);
+
         $unitPrice = (float) $service->price;
         $total = $quantity * $unitPrice;
 
         $sale = Sale::create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'cashier_id' => $cashier->id,
             'subtotal' => $total,
             'discount' => 0,
@@ -164,7 +193,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_authorized_user_can_view_sales_dashboard(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 
@@ -177,6 +206,14 @@ class SalesDashboardApiTest extends TestCase
         $this->giveSalesViewPermission(
             $user,
             $business
+        );
+
+        $branch = $this->branchFor($business);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
         );
 
         [$product, $unit] = $this->createProduct(
@@ -212,7 +249,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_user_without_sales_view_permission_cannot_view_dashboard(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 
@@ -231,8 +268,8 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_dashboard_is_scoped_to_current_business(): void
     {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+        $businessA = $this->createBusinessWithSubscription();
+        $businessB = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($businessA);
 
@@ -249,6 +286,15 @@ class SalesDashboardApiTest extends TestCase
         $this->giveSalesViewPermission(
             $user,
             $businessA
+        );
+
+        $branchA = $this->branchFor($businessA);
+        $this->branchFor($businessB);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $businessA,
+            $branchA
         );
 
         [$productA, $unitA] = $this->createProduct(
@@ -297,7 +343,7 @@ class SalesDashboardApiTest extends TestCase
 
     public function test_dashboard_includes_services(): void
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = $this->createBusinessMember($business);
 
@@ -310,6 +356,14 @@ class SalesDashboardApiTest extends TestCase
         $this->giveSalesViewPermission(
             $user,
             $business
+        );
+
+        $branch = $this->branchFor($business);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
         );
 
         $service = Service::factory()->create([

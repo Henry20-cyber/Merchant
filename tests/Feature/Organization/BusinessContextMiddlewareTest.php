@@ -34,6 +34,19 @@ class BusinessContextMiddlewareTest extends TestCase
                 'team_id' => getPermissionsTeamId(),
             ]);
         });
+
+        Route::middleware([
+            'auth:sanctum',
+            'business.context',
+            'branch.context',
+        ])->get('/api/test/branch-context', function (Request $request) {
+            $branch = $request->attributes->get('current_branch');
+
+            return response()->json([
+                'branch_id' => $branch?->id,
+                'business_id' => $branch?->business_id,
+            ]);
+        });
     }
 
     private function createBusiness(): Business
@@ -188,6 +201,80 @@ class BusinessContextMiddlewareTest extends TestCase
     }
 
     public function test_business_context_service_uses_the_same_business_resolved_by_middleware(): void
+    {
+        $user = User::factory()->create();
+
+        $businessA = $this->createBusiness();
+        $businessB = $this->createBusiness();
+
+        $this->addMember($user, $businessA);
+        $this->addMember($user, $businessB);
+
+        session([
+            'current_business_id' => $businessA->id,
+        ]);
+
+        Route::middleware([
+            'auth:sanctum',
+            'business.context',
+        ])->get('/api/test/business-context-service', function (
+            Request $request
+        ) {
+            $business = app(
+                \App\Domains\Organization\Services\BusinessContextService::class
+            )->current($request->user());
+
+            return response()->json([
+                'business_id' => $business?->id,
+                'team_id' => getPermissionsTeamId(),
+            ]);
+        });
+
+        $response = $this
+            ->actingAs($user)
+            ->withHeader('X-Business-ID', $businessB->id)
+            ->getJson('/api/test/business-context-service');
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath('business_id', $businessB->id)
+            ->assertJsonPath('team_id', $businessB->id);
+    }
+
+    public function test_it_resolves_current_branch_from_session(): void
+{
+    $user = User::factory()->create();
+
+    $business = $this->createBusiness();
+
+    $this->addMember($user, $business);
+
+    $branch = \App\Domains\Organization\Models\Branch::create([
+        'business_id' => $business->id,
+        'name' => 'Owerri Branch',
+        'code' => 'OW-CONTEXT-001',
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => false,
+    ]);
+
+    session([
+        'current_business_id' => $business->id,
+        'current_branch_id' => $branch->id,
+    ]);
+
+    $response = $this
+        ->actingAs($user)
+        ->getJson('/api/test/branch-context');
+
+    $response
+        ->assertSuccessful()
+        ->assertJsonPath('branch_id', $branch->id)
+        ->assertJsonPath('business_id', $business->id);
+}
+
+public function test_it_does_not_resolve_branch_from_another_business(): void
 {
     $user = User::factory()->create();
 
@@ -197,34 +284,32 @@ class BusinessContextMiddlewareTest extends TestCase
     $this->addMember($user, $businessA);
     $this->addMember($user, $businessB);
 
-    session([
-        'current_business_id' => $businessA->id,
+    $branchA = \App\Domains\Organization\Models\Branch::create([
+        'business_id' => $businessA->id,
+        'name' => 'Business A Branch',
+        'code' => 'A-BRANCH-001',
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => false,
     ]);
 
-    Route::middleware([
-        'auth:sanctum',
-        'business.context',
-    ])->get('/api/test/business-context-service', function (
-        Request $request
-    ) {
-        $business = app(
-            \App\Domains\Organization\Services\BusinessContextService::class
-        )->current($request->user());
-
-        return response()->json([
-            'business_id' => $business?->id,
-            'team_id' => getPermissionsTeamId(),
-        ]);
-    });
+    session([
+        'current_business_id' => $businessB->id,
+        'current_branch_id' => $branchA->id,
+    ]);
 
     $response = $this
         ->actingAs($user)
-        ->withHeader('X-Business-ID', $businessB->id)
-        ->getJson('/api/test/business-context-service');
+        ->getJson('/api/test/branch-context');
 
     $response
         ->assertSuccessful()
-        ->assertJsonPath('business_id', $businessB->id)
-        ->assertJsonPath('team_id', $businessB->id);
+        ->assertJsonPath('branch_id', null)
+        ->assertJsonPath('business_id', null);
+
+    $this->assertFalse(
+        session()->has('current_branch_id')
+    );
 }
 }

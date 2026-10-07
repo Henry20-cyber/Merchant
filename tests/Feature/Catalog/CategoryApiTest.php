@@ -10,9 +10,12 @@ use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class CategoryApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -24,7 +27,7 @@ class CategoryApiTest extends TestCase
 
     private function ownerWithBusiness(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $owner = User::factory()->create();
 
@@ -117,7 +120,7 @@ class CategoryApiTest extends TestCase
     {
         [, $business] = $this->ownerWithBusiness();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         $otherParent = Category::create([
             'business_id' => $otherBusiness->id,
@@ -144,7 +147,7 @@ class CategoryApiTest extends TestCase
     {
         [, $business] = $this->ownerWithBusiness();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         Category::create([
             'business_id' => $business->id,
@@ -184,7 +187,7 @@ class CategoryApiTest extends TestCase
     {
         [, $business] = $this->ownerWithBusiness();
 
-        $otherBusiness = Business::factory()->create();
+        $otherBusiness = $this->createBusinessWithSubscription();
 
         $category = Category::create([
             'business_id' => $otherBusiness->id,

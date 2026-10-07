@@ -2,19 +2,24 @@
 
 namespace Tests\Feature\Receipt;
 
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Receipt\Models\Receipt;
 use App\Domains\Sales\Models\Sale;
 use App\Models\User;
+use App\Domains\Organization\Services\BranchContextService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use Spatie\Permission\PermissionRegistrar;
 use Tests\TestCase;
+use Tests\Support\CreatesSubscriptionForBusiness;
 
 class ReceiptApiTest extends TestCase
 {
+    use CreatesSubscriptionForBusiness;
+
     use RefreshDatabase;
 
     /*
@@ -48,7 +53,7 @@ class ReceiptApiTest extends TestCase
 
     private function createBusinessWithUser(): array
     {
-        $business = Business::factory()->create();
+        $business = $this->createBusinessWithSubscription();
 
         $user = User::factory()->create();
 
@@ -61,6 +66,22 @@ class ReceiptApiTest extends TestCase
 
         $this->setPermissionTeam(
             $business
+        );
+
+        $branch = Branch::create([
+            'business_id' => $business->id,
+            'name' => 'Main Branch',
+            'code' => 'MAIN-' . $business->id,
+            'city' => 'Owerri',
+            'state' => 'Imo',
+            'country' => 'Nigeria',
+            'is_head_office' => true,
+        ]);
+
+        app(BranchContextService::class)->set(
+            $user,
+            $business,
+            $branch
         );
 
         return [
@@ -100,8 +121,14 @@ class ReceiptApiTest extends TestCase
         Business $business,
         User $user
     ): Receipt {
+        $branch = Branch::query()
+            ->where('business_id', $business->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
         $sale = Sale::factory()->create([
             'business_id' => $business->id,
+            'branch_id' => $branch->id,
             'cashier_id' => $user->id,
             'payment_status' => 'paid',
             'status' => 'completed',
@@ -307,6 +334,17 @@ class ReceiptApiTest extends TestCase
             $userB
         );
 
+        $branchA = Branch::query()
+            ->where('business_id', $businessA->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $userA,
+            $businessA,
+            $branchA
+        );
+
         $response = $this
             ->actingAs($userA)
             ->withHeaders([
@@ -340,6 +378,17 @@ class ReceiptApiTest extends TestCase
         $receiptB = $this->createReceipt(
             $businessB,
             $userB
+        );
+
+        $branchA = Branch::query()
+            ->where('business_id', $businessA->id)
+            ->where('is_head_office', true)
+            ->firstOrFail();
+
+        app(BranchContextService::class)->set(
+            $userA,
+            $businessA,
+            $branchA
         );
 
         $response = $this

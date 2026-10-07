@@ -61,7 +61,7 @@ class BusinessContextService
         session()->forget('current_business_id');
     }
 
-     /**
+    /**
      * Get all active businesses belonging to the user.
      */
     public function activeBusinesses(User $user): Collection

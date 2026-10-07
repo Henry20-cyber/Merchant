@@ -10,6 +10,11 @@ use App\Domains\Identity\Services\RoleService;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Password;
+use Illuminate\Support\Facades\Hash;
+use App\Domains\Identity\Requests\ForgotPasswordRequest;
+use App\Domains\Identity\Requests\ResetPasswordRequest;
+use App\Domains\Identity\Requests\UpdateProfileRequest;
 use App\Domains\Identity\Services\AuthenticationService;
 use App\Domains\Organization\Services\BusinessContextService;
 
@@ -157,6 +162,7 @@ public function me(Request $request): JsonResponse
             'id' => $user->id,
             'name' => $user->name,
             'email' => $user->email,
+            'phone' => $user->phone,
         ],
 
         'business' => $business
@@ -165,6 +171,11 @@ public function me(Request $request): JsonResponse
                 'merchant_id' => $business->merchant_id,
                 'name' => $business->name,
                 'slug' => $business->slug,
+                'phone' => $business->phone,
+                'email' => $business->email,
+                'address' => $business->address,
+                'city' => $business->city,
+                'state' => $business->state,
                 'status' => $business->status,
             ]
             : null,
@@ -177,6 +188,63 @@ public function me(Request $request): JsonResponse
     ]);
 }
 
+
+    public function updateProfile(UpdateProfileRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->update($request->validated());
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile updated successfully.',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'phone' => $user->phone,
+            ],
+        ]);
+    }
+
+    public function forgotPassword(ForgotPasswordRequest $request): JsonResponse
+    {
+        $status = Password::sendResetLink($request->validated());
+
+        // Never reveal whether an email exists in MerchantOS.
+        if ($status !== Password::RESET_LINK_SENT) {
+            return response()->json([
+                'success' => true,
+                'message' => 'If an account exists for that email, a password reset link has been sent.',
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'If an account exists for that email, a password reset link has been sent.',
+        ]);
+    }
+
+    public function resetPassword(ResetPasswordRequest $request): JsonResponse
+    {
+        $status = Password::reset(
+            $request->validated(),
+            function ($user, $password) {
+                $user->forceFill(['password' => Hash::make($password)])->save();
+                $user->setRememberToken(str()->random(60));
+            }
+        );
+
+        if ($status !== Password::PASSWORD_RESET) {
+            return response()->json([
+                'success' => false,
+                'message' => __($status),
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password reset successfully. You can now sign in.',
+        ]);
+    }
 
     public function logout(): JsonResponse
     {
