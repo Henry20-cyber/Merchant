@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Domains\Receipt\Models\Receipt;
 use App\Domains\Credit\Models\Credit;
+use App\Domains\Organization\Models\Branch;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Database\Factories\SaleFactory;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -31,6 +32,7 @@ class Sale extends Model
 
   protected $fillable = [
     'business_id',
+     'branch_id',
     'cashier_id',
     'customer_id',
     'subtotal',
@@ -108,4 +110,9 @@ class Sale extends Model
       Receipt::class
     );
   }
+
+  public function branch(): BelongsTo
+{
+    return $this->belongsTo(Branch::class);
+}
 }

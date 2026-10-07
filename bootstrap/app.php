@@ -39,6 +39,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
             'business.context' => \App\Http\Middleware\SetCurrentBusiness::class,
+            'branch.context' => \App\Http\Middleware\SetCurrentBranch::class,
             'subscription' => \App\Http\Middleware\EnsureSubscriptionIsUsable::class,
             'subscription.capability' => \App\Http\Middleware\EnsureSubscriptionCapability::class,
         ]);

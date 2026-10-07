@@ -7,6 +7,7 @@ use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Inventory\Services\InventoryQuantityConverter;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Subscription\Services\UsageService;
@@ -74,6 +75,7 @@ class SaleService
      */
     public function create(
         Business $business,
+        Branch $branch,
         User $cashier,
         array $items,
         array $saleData = [],
@@ -86,6 +88,7 @@ class SaleService
 
         return DB::transaction(function () use (
             $business,
+            $branch,
             $cashier,
             $items,
             $saleData
@@ -220,6 +223,7 @@ class SaleService
              */
             $sale = Sale::create([
                 'business_id' => $business->id,
+                'branch_id' => $branch->id,
                 'cashier_id' => $cashier->id,
                 'customer_id' => $customer?->id,
                 'subtotal' => $subtotal,

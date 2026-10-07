@@ -301,22 +301,61 @@ Route::middleware('auth:sanctum')->group(function () {
     ]);
 
     /*
-    |--------------------------------------------------------------------------
-    | Branch Management
-    |--------------------------------------------------------------------------
-    |
-    | Branches are always scoped to the authenticated user's current
-    | business through business.context.
-    |
-    | Current branch permissions:
-    | - branches.view
-    | - branches.create
-    | - branches.update
-    |
-    | There is intentionally no DELETE route because the permission
-    | catalog currently has no branches.delete permission.
-    |
-    */
+|--------------------------------------------------------------------------
+| Branch Management
+|--------------------------------------------------------------------------
+|
+| Branches are always scoped to the authenticated user's current
+| business through business.context.
+|
+| Current branch permissions:
+| - branches.view
+| - branches.create
+| - branches.update
+|
+| There is intentionally no DELETE route because the permission
+| catalog currently has no branches.delete permission.
+|
+*/
+
+    /*
+|--------------------------------------------------------------------------
+| Switch Current Branch
+|--------------------------------------------------------------------------
+|
+| Switch the authenticated user's active location within the
+| current business.
+|
+| IMPORTANT:
+| This route uses business.context but does NOT use branch.context,
+| because the purpose of this endpoint is to establish branch context.
+|
+*/
+    Route::get('/businesses/current/branch', [
+        BranchController::class,
+        'current',
+    ])->middleware([
+        'business.context',
+        'subscription',
+        'permission:branches.view',
+    ]);
+
+
+    Route::post('/businesses/current/branches/{branch}/switch', [
+        BranchController::class,
+        'switch',
+    ])->middleware([
+        'business.context',
+        'subscription',
+        'permission:branches.view',
+    ]);
+
+
+    /*
+|--------------------------------------------------------------------------
+| List Branches
+|--------------------------------------------------------------------------
+*/
 
     Route::get('/businesses/current/branches', [
         BranchController::class,
@@ -327,6 +366,13 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:branches.view',
     ]);
 
+
+    /*
+|--------------------------------------------------------------------------
+| Create Branch
+|--------------------------------------------------------------------------
+*/
+
     Route::post('/businesses/current/branches', [
         BranchController::class,
         'store',
@@ -335,6 +381,13 @@ Route::middleware('auth:sanctum')->group(function () {
         'subscription',
         'permission:branches.create',
     ]);
+
+
+    /*
+|--------------------------------------------------------------------------
+| Update Branch
+|--------------------------------------------------------------------------
+*/
 
     Route::put('/businesses/current/branches/{branch}', [
         BranchController::class,
@@ -615,7 +668,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/businesses/current/sales/dashboard', [
             SaleController::class,
             'dashboard',
-        ])->middleware('permission:sales.view');
+        ])->middleware([
+            'branch.context',
+            'permission:sales.view',
+        ]);
 
         Route::get('/businesses/current/sales/advanced-analytics', [
             SaleController::class,
@@ -631,7 +687,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/businesses/current/sales', [
             SaleController::class,
             'index',
-        ])->middleware('permission:sales.view');
+        ])->middleware([
+            'branch.context',
+            'permission:sales.view',
+        ]);
 
         /*
         |--------------------------------------------------------------------------
@@ -642,7 +701,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/businesses/current/sales/{sale}', [
             SaleController::class,
             'show',
-        ])->middleware('permission:sales.view');
+        ])->middleware([
+            'branch.context',
+            'permission:sales.view',
+        ]);
 
         /*
         |--------------------------------------------------------------------------
@@ -653,7 +715,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/businesses/current/sales', [
             SaleController::class,
             'store',
-        ])->middleware('permission:sales.create');
+        ])->middleware([
+            'branch.context',
+            'permission:sales.create',
+        ]);
     });
 
     /*

@@ -5,6 +5,7 @@ namespace Tests\Feature\Sales;
 use App\Domains\Inventory\Models\Stock;
 use App\Domains\Inventory\Models\StockMovement;
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Sales\Models\Sale;
@@ -28,6 +29,8 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+     $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
@@ -39,6 +42,7 @@ class SaleServiceTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -52,6 +56,17 @@ class SaleServiceTest extends TestCase
             Sale::class,
             $sale
         );
+
+        $this->assertEquals(
+            $branch->id,
+            $sale->branch_id
+        );
+
+        $this->assertDatabaseHas('sales', [
+            'id' => $sale->id,
+            'business_id' => $business->id,
+            'branch_id' => $branch->id,
+        ]);
 
         $this->assertDatabaseHas('sale_items', [
             'sale_id' => $sale->id,
@@ -70,6 +85,8 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+       $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
@@ -81,6 +98,7 @@ class SaleServiceTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -117,6 +135,8 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+       $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
@@ -127,6 +147,7 @@ class SaleServiceTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -153,6 +174,8 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($businessA);
 
+      $branch = $this->createBranchFor($businessA);
+
         $businessB = Business::factory()->create();
 
         $cashier = $this->createCashierFor($businessA);
@@ -169,6 +192,7 @@ class SaleServiceTest extends TestCase
 
         app(SaleService::class)->create(
             $businessA,
+            $branch,
             $cashier,
             [
                 [
@@ -185,6 +209,8 @@ class SaleServiceTest extends TestCase
 
         $this->createSubscriptionFor($business);
 
+       $branch = $this->createBranchFor($business);
+
         $cashier = $this->createCashierFor($business);
 
         $service = Service::factory()->create([
@@ -199,6 +225,7 @@ class SaleServiceTest extends TestCase
 
         app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -214,6 +241,8 @@ class SaleServiceTest extends TestCase
         $business = Business::factory()->create();
 
         $this->createSubscriptionFor($business);
+
+       $branch = $this->createBranchFor($business);
 
         $cashier = $this->createCashierFor($business);
 
@@ -259,6 +288,7 @@ class SaleServiceTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -276,6 +306,11 @@ class SaleServiceTest extends TestCase
         $this->assertEquals(
             2,
             $sale->items()->count()
+        );
+
+        $this->assertEquals(
+            $branch->id,
+            $sale->branch_id
         );
 
         $this->assertDatabaseHas('sale_items', [
@@ -309,6 +344,8 @@ class SaleServiceTest extends TestCase
         $business = Business::factory()->create();
 
         $this->createSubscriptionFor($business);
+
+       $branch = $this->createBranchFor($business);
 
         $cashier = $this->createCashierFor($business);
 
@@ -346,6 +383,7 @@ class SaleServiceTest extends TestCase
 
         $sale = app(SaleService::class)->create(
             $business,
+            $branch,
             $cashier,
             [
                 [
@@ -424,4 +462,19 @@ class SaleServiceTest extends TestCase
 
         return $cashier;
     }
+
+    private function createBranchFor(
+    Business $business
+): Branch {
+    return Branch::create([
+        'business_id' => $business->id,
+        'name' => 'Test Branch',
+        'code' => 'TEST-' . strtoupper(substr(str_replace('-', '', $business->id), 0, 8)),
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'country' => 'Nigeria',
+        'is_head_office' => true,
+    ]);
+}
+
 }

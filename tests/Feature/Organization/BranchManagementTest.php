@@ -587,4 +587,136 @@ public function test_cashier_cannot_update_branch(): void
         'name' => 'Test Branch',
     ]);
 }
+
+public function test_owner_can_switch_current_branch(): void
+{
+    $headOffice = $this->createBranch([
+        'name' => 'Head Office',
+        'code' => 'HO-SWITCH',
+        'city' => 'Owerri',
+        'state' => 'Imo',
+        'is_head_office' => true,
+    ]);
+
+    $branch = $this->createBranch([
+        'name' => 'Port Harcourt Branch',
+        'code' => 'PH-SWITCH',
+        'city' => 'Port Harcourt',
+        'state' => 'Rivers',
+        'is_head_office' => false,
+    ]);
+
+    $response = $this
+        ->actingAs($this->owner)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+        ])
+        ->postJson(
+            "/api/businesses/current/branches/{$branch->id}/switch"
+        );
+
+    $response
+        ->assertOk()
+        ->assertJsonPath(
+            'success',
+            true
+        )
+        ->assertJsonPath(
+            'message',
+            'Location switched successfully.'
+        )
+        ->assertJsonPath(
+            'data.id',
+            $branch->id
+        )
+        ->assertJsonPath(
+            'data.name',
+            'Port Harcourt Branch'
+        );
+
+    $this->assertEquals(
+        $branch->id,
+        session('current_branch_id')
+    );
+}
+
+public function test_user_cannot_switch_to_branch_from_another_business(): void
+{
+    $otherBusiness = $this->createBusinessWithSubscription();
+
+    $otherBranch = Branch::create([
+        'business_id' => $otherBusiness->id,
+        'name' => 'Other Business Branch',
+        'code' => 'OTHER-SWITCH',
+        'city' => 'Lagos',
+        'state' => 'Lagos',
+        'country' => 'Nigeria',
+        'is_head_office' => false,
+    ]);
+
+    $response = $this
+        ->actingAs($this->owner)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+        ])
+        ->postJson(
+            "/api/businesses/current/branches/{$otherBranch->id}/switch"
+        );
+
+    $response->assertNotFound();
+
+    $this->assertNull(
+        session('current_branch_id')
+    );
+}
+
+public function test_user_without_branch_view_permission_cannot_switch_branch(): void
+{
+    $branch = $this->createBranch([
+        'name' => 'Port Harcourt Branch',
+        'code' => 'PH-NOVIEW',
+        'city' => 'Port Harcourt',
+        'state' => 'Rivers',
+        'is_head_office' => false,
+    ]);
+
+    $cashier = User::factory()->create();
+
+    BusinessUser::create([
+        'business_id' => $this->business->id,
+        'user_id' => $cashier->id,
+        'status' => 'active',
+        'joined_at' => now(),
+    ]);
+
+    $this->createRoleWithPermissions(
+        'Branch Switch Cashier',
+        [
+            'business.view',
+        ]
+    );
+
+    setPermissionsTeamId($this->business->id);
+
+    $cashier->assignRole(
+        Role::where('name', 'Branch Switch Cashier')
+            ->where('team_id', $this->business->id)
+            ->firstOrFail()
+    );
+
+    $response = $this
+        ->actingAs($cashier)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+        ])
+        ->postJson(
+            "/api/businesses/current/branches/{$branch->id}/switch"
+        );
+
+    $response->assertForbidden();
+
+    $this->assertNull(
+        session('current_branch_id')
+    );
+}
 }
