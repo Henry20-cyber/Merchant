@@ -99,7 +99,7 @@ class CreditApiTest extends TestCase
             'status' => 'completed',
             'subtotal' => 10000,
             'discount' => 0,
-            'tax' => 0,
+            'vat_amount' => 0,
             'total' => 10000,
         ]);
 

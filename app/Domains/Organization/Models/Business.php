@@ -53,6 +53,7 @@ class Business extends Model
         'status',
         'barcode_enabled',
         'business_scale',
+        'vat_enabled',
     ];
 
     protected function casts(): array
@@ -60,6 +61,7 @@ class Business extends Model
         return [
             'barcode_enabled' => 'boolean',
             'business_scale' => 'string',
+            'vat_enabled' => 'boolean',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

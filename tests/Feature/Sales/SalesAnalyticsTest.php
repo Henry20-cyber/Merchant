@@ -201,7 +201,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 1500,
 
@@ -362,7 +362,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 1500,
 
@@ -406,7 +406,7 @@ class SalesAnalyticsTest extends TestCase
 
 
 
-        $this->assertEquals(0, $analytics['tax']);
+        $this->assertEquals(0, $analytics['vat_amount']);
 
 
 
@@ -491,9 +491,15 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 1000,
 
-            'tax' => 500,
+            'taxable_amount' => 9000,
 
-            'total' => 9500,
+            'vat_enabled' => true,
+
+            'vat_rate' => 7.5,
+
+            'vat_amount' => 675,
+
+            'total' => 9675,
 
         ]);
 
@@ -549,9 +555,9 @@ class SalesAnalyticsTest extends TestCase
 
         $this->assertEquals(
 
-            500,
+            675,
 
-            $analytics['tax']
+            $analytics['vat_amount']
 
         );
 
@@ -599,7 +605,7 @@ class SalesAnalyticsTest extends TestCase
 
         $this->assertEquals(
 
-            9500,
+            9675,
 
             $analytics['total']
 
@@ -692,7 +698,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 10000,
 
@@ -744,7 +750,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 5000,
 
@@ -796,7 +802,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 20000,
 
@@ -856,7 +862,7 @@ class SalesAnalyticsTest extends TestCase
 
             0,
 
-            $analytics['tax']
+            $analytics['vat_amount']
 
         );
 
@@ -991,7 +997,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 10000,
 
@@ -1047,7 +1053,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 20000,
 
@@ -1101,7 +1107,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 30000,
 
@@ -1324,7 +1330,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 10000,
 
@@ -1374,7 +1380,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 100000,
 
@@ -1587,7 +1593,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 50000,
 
@@ -1633,7 +1639,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 24000,
 
@@ -1683,7 +1689,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 30000,
 
@@ -1954,7 +1960,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 50000,
 
@@ -2010,7 +2016,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 24000,
 
@@ -2072,7 +2078,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 80000,
 
@@ -2297,7 +2303,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 50000,
 
@@ -2351,7 +2357,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => 24000,
 
@@ -2811,81 +2817,98 @@ class SalesAnalyticsTest extends TestCase
 
 
 
-    public function test_advanced_analytics_remains_business_wide(): void
+   public function test_advanced_analytics_only_reports_current_branch(): void
+{
+    $this->createSale(
+        $this->branchA,
+        10000
+    );
 
-    {
+    $this->createSale(
+        $this->branchB,
+        50000
+    );
 
-        $this->createSale(
+    $response = $this
+        ->actingAs($this->owner)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+            'current_branch_id' => $this->branchA->id,
+        ])
+        ->getJson(
+            '/api/businesses/current/sales/advanced-analytics'
+        );
 
-            $this->branchA,
-
+    $response
+        ->assertOk()
+        ->assertJsonPath(
+            'success',
+            true
+        )
+        ->assertJsonPath(
+            'data.revenue',
             10000
+        )
+        ->assertJsonPath(
+            'data.transactions',
+            1
+        );
+}
 
+public function test_switching_branch_changes_advanced_analytics(): void
+{
+    $this->createSale(
+        $this->branchA,
+        10000
+    );
+
+    $this->createSale(
+        $this->branchB,
+        50000
+    );
+
+    $branchAResponse = $this
+        ->actingAs($this->owner)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+            'current_branch_id' => $this->branchA->id,
+        ])
+        ->getJson(
+            '/api/businesses/current/sales/advanced-analytics'
         );
 
+    $branchAResponse
+        ->assertOk()
+        ->assertJsonPath(
+            'data.revenue',
+            10000
+        )
+        ->assertJsonPath(
+            'data.transactions',
+            1
+        );
 
+    $branchBResponse = $this
+        ->actingAs($this->owner)
+        ->withSession([
+            'current_business_id' => $this->business->id,
+            'current_branch_id' => $this->branchB->id,
+        ])
+        ->getJson(
+            '/api/businesses/current/sales/advanced-analytics'
+        );
 
-        $this->createSale(
-
-            $this->branchB,
-
+    $branchBResponse
+        ->assertOk()
+        ->assertJsonPath(
+            'data.revenue',
             50000
-
+        )
+        ->assertJsonPath(
+            'data.transactions',
+            1
         );
-
-
-
-        $response = $this
-
-            ->actingAs($this->owner)
-
-            ->withSession([
-
-                'current_business_id' => $this->business->id,
-
-                'current_branch_id' => $this->branchA->id,
-
-            ])
-
-            ->getJson(
-
-                '/api/businesses/current/sales/advanced-analytics'
-
-            );
-
-
-
-        $response
-
-            ->assertOk()
-
-            ->assertJsonPath(
-
-                'success',
-
-                true
-
-            )
-
-            ->assertJsonPath(
-
-                'data.revenue',
-
-                60000
-
-            )
-
-            ->assertJsonPath(
-
-                'data.transactions',
-
-                2
-
-            );
-    }
-
-
-
+}
 
     private function createRoleWithPermissions(
         string $roleName,
@@ -2957,7 +2980,7 @@ class SalesAnalyticsTest extends TestCase
 
             'discount' => 0,
 
-            'tax' => 0,
+            'vat_amount' => 0,
 
             'total' => $total,
 

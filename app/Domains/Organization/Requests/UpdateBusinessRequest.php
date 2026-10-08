@@ -75,6 +75,11 @@ class UpdateBusinessRequest extends FormRequest
                 'string',
                 'max:100',
             ],
+
+            'vat_enabled' => [
+                'sometimes',
+                'boolean',
+            ],
         ];
     }
 }

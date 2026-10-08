@@ -55,7 +55,6 @@ class SaleController extends Controller
             [
                 'customer_id' => $request->validated('customer_id'),
                 'discount' => $request->validated('discount', 0),
-                'tax' => $request->validated('tax', 0),
                 'payment_method' => $request->validated(
                     'payment_method',
                     'cash'
@@ -284,7 +283,8 @@ class SaleController extends Controller
     public function advancedAnalytics(
         Request $request,
         SalesAnalyticsService $analyticsService,
-        BusinessContextService $businessContext
+        BusinessContextService $businessContext,
+        BranchContextService $branchContext
     ): JsonResponse {
         $business = $businessContext->current(
             $request->user()
@@ -294,6 +294,18 @@ class SaleController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Business context is required.',
+            ], 400);
+        }
+
+        $branch = $branchContext->current(
+            $request->user(),
+            $business
+        );
+
+        if (! $branch) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Branch context is required.',
             ], 400);
         }
 
@@ -311,6 +323,7 @@ class SaleController extends Controller
 
         $analytics = $analyticsService->advanced(
             $business,
+            $branch,
             now(),
             $startDate,
             $endDate,

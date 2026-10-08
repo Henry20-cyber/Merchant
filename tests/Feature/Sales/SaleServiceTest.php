@@ -518,6 +518,123 @@ class SaleServiceTest extends TestCase
         );
     }
 
+    public function test_sale_without_vat_applies_manual_discount_only(): void
+    {
+        $business = Business::factory()->create([
+            'vat_enabled' => false,
+        ]);
+
+        $this->createSubscriptionFor($business);
+
+        $branch = $this->createBranchFor($business);
+        $cashier = $this->createCashierFor($business);
+
+        $service = Service::factory()->create([
+            'business_id' => $business->id,
+            'price' => 10000,
+            'is_active' => true,
+        ]);
+
+        $sale = app(SaleService::class)->create(
+            $business,
+            $branch,
+            $cashier,
+            [
+                [
+                    'service_id' => $service->id,
+                    'quantity' => 1,
+                ],
+            ],
+            [
+                'discount' => 1000,
+            ]
+        );
+
+        $this->assertEquals(10000, (float) $sale->subtotal);
+        $this->assertEquals(1000, (float) $sale->discount);
+        $this->assertEquals(9000, (float) $sale->taxable_amount);
+        $this->assertFalse((bool) $sale->vat_enabled);
+        $this->assertEquals(0, (float) $sale->vat_rate);
+        $this->assertEquals(0, (float) $sale->vat_amount);
+        $this->assertEquals(9000, (float) $sale->total);
+    }
+
+    public function test_vat_is_calculated_at_seven_point_five_percent_after_discount(): void
+    {
+        $business = Business::factory()->create([
+            'vat_enabled' => true,
+        ]);
+
+        $this->createSubscriptionFor($business);
+
+        $branch = $this->createBranchFor($business);
+        $cashier = $this->createCashierFor($business);
+
+        $service = Service::factory()->create([
+            'business_id' => $business->id,
+            'price' => 10000,
+            'is_active' => true,
+        ]);
+
+        $sale = app(SaleService::class)->create(
+            $business,
+            $branch,
+            $cashier,
+            [
+                [
+                    'service_id' => $service->id,
+                    'quantity' => 1,
+                ],
+            ],
+            [
+                'discount' => 1000,
+            ]
+        );
+
+        $this->assertEquals(10000, (float) $sale->subtotal);
+        $this->assertEquals(1000, (float) $sale->discount);
+        $this->assertEquals(9000, (float) $sale->taxable_amount);
+        $this->assertTrue((bool) $sale->vat_enabled);
+        $this->assertEquals(7.5, (float) $sale->vat_rate);
+        $this->assertEquals(675, (float) $sale->vat_amount);
+        $this->assertEquals(9675, (float) $sale->total);
+    }
+
+    public function test_sale_discount_cannot_exceed_subtotal(): void
+    {
+        $business = Business::factory()->create([
+            'vat_enabled' => true,
+        ]);
+
+        $this->createSubscriptionFor($business);
+
+        $branch = $this->createBranchFor($business);
+        $cashier = $this->createCashierFor($business);
+
+        $service = Service::factory()->create([
+            'business_id' => $business->id,
+            'price' => 10000,
+            'is_active' => true,
+        ]);
+
+        $this->expectException(ValidationException::class);
+
+        app(SaleService::class)->create(
+            $business,
+            $branch,
+            $cashier,
+            [
+                [
+                    'service_id' => $service->id,
+                    'quantity' => 1,
+                ],
+            ],
+            [
+                'discount' => 10001,
+            ]
+        );
+    }
+
     private function createSubscriptionFor(
         Business $business
     ): Subscription {

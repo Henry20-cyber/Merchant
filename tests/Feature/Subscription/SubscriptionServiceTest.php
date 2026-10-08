@@ -122,6 +122,21 @@ class SubscriptionServiceTest extends TestCase
             ->not->toBeNull();
     }
 
+    public function test_medium_trial_enables_vat_by_default(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan('medium');
+
+        $this->service->createTrial(
+            $business,
+            $plan
+        );
+
+        expect(
+            $business->fresh()->vat_enabled
+        )->toBeTrue();
+    }
+
     public function test_trial_cannot_use_inactive_plan(): void
     {
         $business = $this->createBusiness();
@@ -303,5 +318,9 @@ class SubscriptionServiceTest extends TestCase
         expect(
             $subscription->fresh()->plan_id
         )->toBe($large->id);
+
+        expect(
+            $business->fresh()->vat_enabled
+        )->toBeTrue();
     }
 }

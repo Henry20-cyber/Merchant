@@ -24,7 +24,10 @@ class SaleFactory extends Factory
 
             'subtotal' => 10000,
             'discount' => 0,
-            'tax' => 0,
+            'taxable_amount' => 10000,
+            'vat_enabled' => false,
+            'vat_rate' => 0,
+            'vat_amount' => 0,
             'total' => 10000,
 
             'payment_method' => 'cash',

@@ -95,7 +95,7 @@ class SalesDashboardMetricsTest extends TestCase
         $sale->cashier_id = $cashier->id;
         $sale->subtotal = $subtotal;
         $sale->discount = 0;
-        $sale->tax = 0;
+        $sale->vat_amount = 0;
         $sale->total = $subtotal;
         $sale->payment_method = 'cash';
         $sale->payment_status = 'paid';

@@ -317,7 +317,7 @@ class ReceiptService
     string $receiptNumber
 ): array {
     return [
-        'version' => 1,
+        'version' => 2,
 
         'business' => [
             'id' => $business->id,
@@ -356,7 +356,10 @@ class ReceiptService
             'id' => $sale->id,
             'subtotal' => $this->money($sale->subtotal),
             'discount' => $this->money($sale->discount),
-            'tax' => $this->money($sale->tax),
+            'taxable_amount' => $this->money($sale->taxable_amount),
+            'vat_enabled' => (bool) $sale->vat_enabled,
+            'vat_rate' => $this->money($sale->vat_rate),
+            'vat_amount' => $this->money($sale->vat_amount),
             'total' => $this->money($sale->total),
             'payment_method' => $sale->payment_method,
             'payment_status' => $sale->payment_status,

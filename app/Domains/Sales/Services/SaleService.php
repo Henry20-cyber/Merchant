@@ -174,19 +174,9 @@ class SaleService
                 $saleData['discount'] ?? 0
             );
 
-            $tax = $this->money(
-                $saleData['tax'] ?? 0
-            );
-
             if ($discount < 0) {
                 throw ValidationException::withMessages([
                     'discount' => 'Discount cannot be negative.',
-                ]);
-            }
-
-            if ($tax < 0) {
-                throw ValidationException::withMessages([
-                    'tax' => 'Tax cannot be negative.',
                 ]);
             }
 
@@ -197,7 +187,35 @@ class SaleService
                 ]);
             }
 
-            $total = $subtotal - $discount + $tax;
+            /*
+             * --------------------------------------------------------------
+             * VAT
+             * --------------------------------------------------------------
+             *
+             * VAT is controlled by the business setting. The client
+             * cannot supply or override the VAT amount/rate.
+             *
+             * The negotiated sale-level discount is deducted before VAT.
+             */
+            $taxableAmount = $this->money(
+                $subtotal - $discount
+            );
+
+            $vatEnabled = (bool) $business->vat_enabled;
+
+            $vatRate = $vatEnabled
+                ? 7.50
+                : 0.00;
+
+            $vatAmount = $vatEnabled
+                ? $this->money(
+                    $taxableAmount * ($vatRate / 100)
+                )
+                : 0.00;
+
+            $total = $this->money(
+                $taxableAmount + $vatAmount
+            );
 
 
             /*
@@ -233,7 +251,10 @@ class SaleService
                 'customer_id' => $customer?->id,
                 'subtotal' => $subtotal,
                 'discount' => $discount,
-                'tax' => $tax,
+                'taxable_amount' => $taxableAmount,
+                'vat_enabled' => $vatEnabled,
+                'vat_rate' => $vatRate,
+                'vat_amount' => $vatAmount,
                 'total' => $total,
                 'payment_method' => $paymentMethod,
                 'payment_status' => $paymentStatus,

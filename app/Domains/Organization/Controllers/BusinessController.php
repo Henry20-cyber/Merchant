@@ -64,6 +64,7 @@ class BusinessController extends Controller
                 'city' => $business->city,
                 'state' => $business->state,
                 'status' => $business->status,
+                'vat_enabled' => (bool) $business->vat_enabled,
             ],
         ]);
     }

@@ -701,7 +701,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/businesses/current/sales/advanced-analytics', [
             SaleController::class,
             'advancedAnalytics',
-        ])->middleware('permission:sales.view');
+        ])->middleware([
+            'business.context',
+            'branch.context',
+            'subscription',
+            'subscription.capability:advanced_reports',
+            'permission:sales.view',
+        ]);
 
         /*
         |--------------------------------------------------------------------------

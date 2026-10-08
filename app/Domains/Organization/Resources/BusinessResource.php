@@ -46,6 +46,8 @@ class BusinessResource extends JsonResource
 
             'status' => $this->status,
 
+            'vat_enabled' => (bool) $this->vat_enabled,
+
             'created_at' => $this->created_at,
         ];
     }

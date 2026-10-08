@@ -676,7 +676,7 @@ class SaleApiTest extends TestCase
 
                     'discount',
 
-                    'tax',
+                    'vat_amount',
 
                     'total',
 

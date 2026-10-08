@@ -35,7 +35,7 @@ class SaleSearchTest extends TestCase
             'cashier_id' => $cashier->id,
             'subtotal' => $total,
             'discount' => 0,
-            'tax' => 0,
+            'vat_amount' => 0,
             'total' => $total,
         ]);
 
@@ -278,7 +278,7 @@ class SaleSearchTest extends TestCase
         'cashier_id' => $cashier->id,
         'subtotal' => 10000,
         'discount' => 0,
-        'tax' => 0,
+        'vat_amount' => 0,
         'total' => 10000,
     ]);
 
@@ -369,7 +369,7 @@ public function test_search_finds_product_or_service_in_mixed_sale(): void
         'cashier_id' => $cashier->id,
         'subtotal' => 11000,
         'discount' => 0,
-        'tax' => 0,
+        'vat_amount' => 0,
         'total' => 11000,
     ]);
 

@@ -101,11 +101,6 @@ class StoreSaleRequest extends FormRequest
                 'min:0',
             ],
 
-            'tax' => [
-                'nullable',
-                'numeric',
-                'min:0',
-            ],
 
             /*
             |--------------------------------------------------------------------------
@@ -173,7 +168,6 @@ class StoreSaleRequest extends FormRequest
     {
         $this->merge([
             'discount' => $this->input('discount', 0),
-            'tax' => $this->input('tax', 0),
         ]);
     }
 }

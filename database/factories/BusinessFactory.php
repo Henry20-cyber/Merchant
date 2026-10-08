@@ -45,6 +45,7 @@ class BusinessFactory extends Factory
             'default_country' => 'Nigeria',
 
             'status' => 'trial',
+            'vat_enabled' => false,
         ];
     }
 

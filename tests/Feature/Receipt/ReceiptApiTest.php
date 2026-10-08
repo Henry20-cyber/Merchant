@@ -134,7 +134,7 @@ class ReceiptApiTest extends TestCase
             'status' => 'completed',
             'subtotal' => 10000,
             'discount' => 0,
-            'tax' => 0,
+            'vat_amount' => 0,
             'total' => 10000,
             'payment_method' => 'cash',
         ]);
@@ -163,7 +163,7 @@ class ReceiptApiTest extends TestCase
                     'id' => $sale->id,
                     'subtotal' => '10000.00',
                     'discount' => '0.00',
-                    'tax' => '0.00',
+                    'vat_amount' => '0.00',
                     'total' => '10000.00',
                     'payment_method' => 'cash',
                     'payment_status' => 'paid',

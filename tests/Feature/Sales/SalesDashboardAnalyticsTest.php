@@ -140,7 +140,7 @@ class SalesDashboardAnalyticsTest extends TestCase
 
     $sale->discount = 0;
 
-    $sale->tax = 0;
+    $sale->vat_amount = 0;
 
     $sale->total = $subtotal;
 

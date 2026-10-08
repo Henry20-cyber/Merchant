@@ -3,12 +3,18 @@
 namespace App\Domains\Subscription\Services;
 
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Services\BusinessVatService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Validation\ValidationException;
 
 class SubscriptionService
 {
+    public function __construct(
+        private BusinessVatService $businessVatService
+    ) {
+    }
+
     /**
      * Create a trial subscription for a business.
      */
@@ -41,7 +47,7 @@ class SubscriptionService
             ->copy()
             ->addDays($trialDays);
 
-        return Subscription::create([
+        $subscription = Subscription::create([
             'business_id' => $business->id,
 
             // IMPORTANT:
@@ -53,6 +59,13 @@ class SubscriptionService
             'current_period_start' => $startsAt,
             'current_period_end' => $trialEndsAt,
         ]);
+
+        $this->businessVatService->applyDefault(
+            $business,
+            $plan
+        );
+
+        return $subscription;
     }
 
     /**
@@ -150,6 +163,11 @@ class SubscriptionService
         $subscription->forceFill([
             'plan_id' => $plan->id,
         ])->save();
+
+        $this->businessVatService->applyDefault(
+            $subscription->business,
+            $plan
+        );
 
         return $subscription->refresh();
     }

@@ -138,6 +138,12 @@ class SalesAnalyticsService
                 $business,
                 $branch
             ),
+
+            'advanced' => $this->dashboardAdvanced(
+                $business,
+                $branch,
+                $date
+            ),
         ];
     }
 
@@ -153,6 +159,7 @@ class SalesAnalyticsService
      */
     public function advanced(
         Business $business,
+        Branch $branch,
         CarbonInterface $date,
         ?CarbonInterface $startDate = null,
         ?CarbonInterface $endDate = null,
@@ -163,6 +170,7 @@ class SalesAnalyticsService
         // One query for all daily revenue + transaction counts in the period.
         $dailyRows = Sale::query()
             ->where('business_id', $business->id)
+            ->where('branch_id', $branch->id)
             ->whereBetween('created_at', [$start, $end])
             ->selectRaw("DATE(created_at) AS sale_date")
             ->selectRaw('SUM(total) AS revenue')
@@ -174,6 +182,7 @@ class SalesAnalyticsService
 
         $dailyExpenseRows = Expense::query()
             ->where('business_id', $business->id)
+            ->where('branch_id', $branch->id)
             ->where('status', 'recorded')
             ->whereBetween('expense_date', [
                 $start->toDateString(),
@@ -214,6 +223,7 @@ class SalesAnalyticsService
         // One aggregate query for the period total.
         $periodTotals = Sale::query()
             ->where('business_id', $business->id)
+            ->where('branch_id', $branch->id)
             ->whereBetween('created_at', [$start, $end])
             ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
             ->selectRaw('COUNT(*) AS transactions')
@@ -223,12 +233,12 @@ class SalesAnalyticsService
         $transactions = (int) ($periodTotals?->transactions ?? 0);
 
         // One aggregate query for top products/services in the same period.
-        $top = $this->topItems($business, null, 8, $start, $end, $revenue);
+        $top = $this->topItems($business, $branch, 8, $start, $end, $revenue);
 
         // Advanced analytics use the selected period consistently.
         $expenses = $this->expensesBetween(
             $business,
-            null,
+            $branch,
             $start,
             $end
         );
@@ -237,7 +247,7 @@ class SalesAnalyticsService
 
         $revenueBreakdown = $this->revenueBreakdown(
             $business,
-            null,
+            $branch,
             $start,
             $end,
         );
@@ -273,7 +283,7 @@ class SalesAnalyticsService
 
         $grossSales = (float) $sales->sum('subtotal');
         $discount = (float) $sales->sum('discount');
-        $tax = (float) $sales->sum('tax');
+        $vat = (float) $sales->sum('vat_amount');
         $total = (float) $sales->sum('total');
         $revenue = $grossSales - $discount;
 
@@ -300,7 +310,7 @@ class SalesAnalyticsService
         return [
             'gross_sales' => $grossSales,
             'discount' => $discount,
-            'tax' => $tax,
+            'vat_amount' => $vat,
             'revenue' => $revenue,
             'total' => $total,
             'cogs' => $cogs,
@@ -424,6 +434,91 @@ class SalesAnalyticsService
 
         return (float) $query->sum('total');
     }
+
+    private function dashboardAdvanced(
+    Business $business,
+    Branch $branch,
+    CarbonInterface $date
+): array {
+    $start = $date->copy()->subDays(13)->startOfDay();
+    $end = $date->copy()->endOfDay();
+
+    $dailyRows = Sale::query()
+        ->where('business_id', $business->id)
+        ->where('branch_id', $branch->id)
+        ->whereBetween('created_at', [$start, $end])
+        ->selectRaw('DATE(created_at) AS sale_date')
+        ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
+        ->selectRaw('COUNT(*) AS transactions')
+        ->groupByRaw('DATE(created_at)')
+        ->orderBy('sale_date')
+        ->get()
+        ->keyBy(fn ($row) => (string) $row->sale_date);
+
+    $daily = [];
+
+    for ($day = 0; $day < 14; $day++) {
+        $cursor = $start->copy()->addDays($day);
+        $dateKey = $cursor->toDateString();
+
+        $row = $dailyRows->get($dateKey);
+
+        $daily[] = [
+            'date' => $cursor->format('M j'),
+            'revenue' => $row
+                ? (float) $row->revenue
+                : 0.0,
+            'transactions' => $row
+                ? (int) $row->transactions
+                : 0,
+        ];
+    }
+
+    $totals = Sale::query()
+        ->where('business_id', $business->id)
+        ->where('branch_id', $branch->id)
+        ->whereBetween('created_at', [$start, $end])
+        ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
+        ->selectRaw('COUNT(*) AS transactions')
+        ->first();
+
+    $revenue = (float) ($totals?->revenue ?? 0);
+    $transactions = (int) ($totals?->transactions ?? 0);
+
+    $topItems = $this->topItems(
+        $business,
+        $branch,
+        5,
+        $start,
+        $end,
+        $revenue
+    );
+
+    $bestDay = collect($daily)
+        ->sortByDesc('revenue')
+        ->first();
+
+    return [
+        'period' => [
+            'start' => $start->toDateString(),
+            'end' => $end->toDateString(),
+        ],
+
+        'revenue' => $revenue,
+
+        'transactions' => $transactions,
+
+        'average_transaction_value' => $transactions > 0
+            ? round($revenue / $transactions, 2)
+            : 0,
+
+        'daily' => $daily,
+
+        'top_items' => $topItems,
+
+        'best_day' => $bestDay,
+    ];
+}
 
     private function transactionsBetween(
         Business $business,

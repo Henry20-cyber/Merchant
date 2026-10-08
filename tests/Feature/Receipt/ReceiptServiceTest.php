@@ -66,7 +66,10 @@ class ReceiptServiceTest extends TestCase
 
             'subtotal' => 10000,
             'discount' => 500,
-            'tax' => 0,
+            'taxable_amount' => 9500,
+            'vat_enabled' => false,
+            'vat_rate' => 0,
+            'vat_amount' => 0,
             'total' => 9500,
 
             'payment_method' => 'cash',
@@ -255,7 +258,7 @@ class ReceiptServiceTest extends TestCase
          * Snapshot schema version.
          */
         $this->assertSame(
-            1,
+            2,
             $snapshot['version']
         );
 
@@ -310,7 +313,16 @@ class ReceiptServiceTest extends TestCase
 
         $this->assertSame(
             '0.00',
-            $snapshot['sale']['tax']
+            $snapshot['sale']['vat_amount']
+        );
+
+        $this->assertFalse(
+            $snapshot['sale']['vat_enabled']
+        );
+
+        $this->assertSame(
+            '0.00',
+            $snapshot['sale']['vat_rate']
         );
 
         $this->assertSame(

@@ -94,7 +94,7 @@ class ReceiptPdfTest extends TestCase
             'payment_method' => 'cash',
             'subtotal' => 10000,
             'discount' => 0,
-            'tax' => 0,
+            'vat_amount' => 0,
             'total' => 10000,
         ]);
 

@@ -40,7 +40,7 @@ class PaymentTest extends TestCase
             'customer_id' => null,
             'subtotal' => 10000,
             'discount' => 0,
-            'tax' => 0,
+            'vat_amount' => 0,
             'total' => 10000,
             'payment_method' => 'cash',
             'payment_status' => 'paid',

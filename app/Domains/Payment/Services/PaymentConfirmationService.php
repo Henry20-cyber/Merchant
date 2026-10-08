@@ -4,6 +4,8 @@ namespace App\Domains\Payment\Services;
 
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
+use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Services\BusinessVatService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Support\Facades\DB;
@@ -12,7 +14,8 @@ use Illuminate\Validation\ValidationException;
 class PaymentConfirmationService
 {
     public function __construct(
-        private PaymentGateway $paymentGateway
+        private PaymentGateway $paymentGateway,
+        private BusinessVatService $businessVatService
     ) {
     }
 
@@ -328,6 +331,20 @@ class PaymentConfirmationService
 
             $subscription->refresh();
         }
+
+        /*
+         * Apply the selected plan's default VAT setting.
+         * The merchant can change this later from Settings.
+         */
+        $business = Business::query()
+            ->whereKey($businessId)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $this->businessVatService->applyDefault(
+            $business,
+            $plan
+        );
 
         /*
          * Establish recurring billing with Paystack.

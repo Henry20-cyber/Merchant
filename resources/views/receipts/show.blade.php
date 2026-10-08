@@ -591,20 +591,23 @@
 
 
         @if(
-            isset($sale['tax'])
-            && (float) $sale['tax'] > 0
+            isset($sale['vat_amount'])
+            && (float) $sale['vat_amount'] > 0
         )
 
             <div class="total-row">
 
                 <span>
-                    Tax
+                    VAT
+                    @if(isset($sale['vat_rate']))
+                        ({{ $formatMoney($sale['vat_rate']) }}%)
+                    @endif
                 </span>
 
                 <span>
                     {{ $currency }}
                     {{ $formatMoney(
-                        $sale['tax']
+                        $sale['vat_amount']
                     ) }}
                 </span>
 
