@@ -244,6 +244,18 @@
             {{ $business['name'] ?? 'MerchantOS' }}
         </div>
 
+        @if(!empty($business['address']))
+    <div>{{ $business['address'] }}</div>
+@endif
+
+@php
+    $businessLocation = array_filter([
+        $business['city'] ?? null,
+        $business['state'] ?? null,
+        $business['country'] ?? null,
+    ]);
+@endphp
+
         @if(!empty($business['email']))
             <div>
                 {{ $business['email'] }}
@@ -261,6 +273,13 @@
                 {{ $business['website'] }}
             </div>
         @endif
+
+
+
+
+@if(count($businessLocation) > 0)
+    <div>{{ implode(', ', $businessLocation) }}</div>
+@endif
 
         <div class="receipt-title">
             RECEIPT
@@ -703,8 +722,8 @@
     <div class="footer">
 
         <div>
-            Thank you for your business.
-        </div>
+    Thanks for patronising us!
+</div>
 
         <div>
             Powered by MerchantOS

@@ -16,15 +16,16 @@ class ReceiptController extends Controller
     /**
      * List receipts belonging to the current business.
      */
+
     public function index(Request $request): JsonResponse
     {
         $business = $this->currentBusiness($request);
         $branch = $this->currentBranch($request);
 
-        $receipts = Receipt::query()
+        $query = Receipt::query()
             ->where('business_id', $business->id)
-            ->whereHas('sale', function ($query) use ($business, $branch) {
-                $query
+            ->whereHas('sale', function ($saleQuery) use ($business, $branch) {
+                $saleQuery
                     ->where('business_id', $business->id)
                     ->where('branch_id', $branch->id);
             })
@@ -32,16 +33,62 @@ class ReceiptController extends Controller
                 'sale',
                 'issuedBy:id,name,email',
             ])
-            ->latest('issued_at')
-            ->paginate(25);
+            ->latest('issued_at');
+
+        if ($request->filled('search')) {
+            $search = trim($request->string('search')->toString());
+
+            $query->where(function ($receiptQuery) use ($search) {
+                $receiptQuery
+                    ->where('receipt_number', 'ilike', "%{$search}%")
+                    ->orWhereHas('sale', function ($saleQuery) use ($search) {
+                        $saleQuery
+                            ->where('payment_method', 'ilike', "%{$search}%")
+                            ->orWhere('payment_status', 'ilike', "%{$search}%");
+                    })
+                    ->orWhereHas('issuedBy', function ($userQuery) use ($search) {
+                        $userQuery->where('name', 'ilike', "%{$search}%");
+                    });
+            });
+        }
+
+        if ($request->filled('start_date')) {
+            $query->whereDate(
+                'issued_at',
+                '>=',
+                $request->date('start_date')
+            );
+        }
+
+        if ($request->filled('end_date')) {
+            $query->whereDate(
+                'issued_at',
+                '<=',
+                $request->date('end_date')
+            );
+        }
+
+
+        $perPage = min(
+            max($request->integer('per_page', 20), 1),
+            100
+        );
+
+        $receipts = $query->paginate($perPage);
+
+        $receipts->setCollection(
+            $receipts->getCollection()->map(
+                fn(Receipt $receipt) => (new ReceiptResource($receipt))
+                    ->resolve($request)
+            )
+        );
 
         return response()->json([
             'success' => true,
-            'data' => ReceiptResource::collection(
-                $receipts
-            ),
+            'data' => $receipts,
         ]);
     }
+
 
     /**
      * Display one receipt.
@@ -112,15 +159,15 @@ class ReceiptController extends Controller
             200,
             [
                 'Content-Type' =>
-                    'text/html; charset=UTF-8',
+                'text/html; charset=UTF-8',
 
                 'Content-Disposition' =>
-                    'inline; filename="' .
+                'inline; filename="' .
                     $receipt->receipt_number .
                     '.html"',
 
                 'X-Receipt-Number' =>
-                    $receipt->receipt_number,
+                $receipt->receipt_number,
             ]
         );
     }
@@ -183,9 +230,9 @@ class ReceiptController extends Controller
 
         abort_unless(
             $receipt->business_id === $business->id
-            && $receipt->sale
-            && $receipt->sale->business_id === $business->id
-            && $receipt->sale->branch_id === $branch->id,
+                && $receipt->sale
+                && $receipt->sale->business_id === $business->id
+                && $receipt->sale->branch_id === $branch->id,
             404
         );
     }

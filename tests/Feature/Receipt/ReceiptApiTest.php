@@ -408,7 +408,7 @@ class ReceiptApiTest extends TestCase
             );
 
         $ids = collect(
-            $response->json('data')
+            $response->json('data.data')
         )->pluck('id');
 
         $this->assertTrue(
@@ -418,5 +418,135 @@ class ReceiptApiTest extends TestCase
         $this->assertFalse(
             $ids->contains($receiptB->id)
         );
+    }
+
+
+    public function test_receipt_list_supports_server_side_pagination(): void
+    {
+        [$business, $user] = $this->createBusinessWithUser();
+
+        $this->giveReceiptViewPermission($user, $business);
+
+        for ($i = 1; $i <= 5; $i++) {
+            $receipt = $this->createReceipt($business, $user);
+            $receipt->update([
+                'receipt_number' => sprintf('RCPT-PAGE-%03d', $i),
+                'issued_at' => now()->addSeconds($i),
+            ]);
+        }
+
+
+        $response = $this
+            ->actingAs($user)
+            ->withHeaders(['X-Business-ID' => $business->id])
+            ->getJson('/api/businesses/current/receipts?per_page=2&page=2');
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.current_page', 2)
+            ->assertJsonPath('data.per_page', 2)
+            ->assertJsonPath('data.total', 5)
+            ->assertJsonCount(2, 'data.data');
+    }
+
+    public function test_receipt_list_searches_receipt_number_and_payment_details(): void
+    {
+        [$business, $user] = $this->createBusinessWithUser();
+
+        $this->giveReceiptViewPermission($user, $business);
+
+        $matchingReceipt = $this->createReceipt($business, $user);
+        $matchingReceipt->update([
+            'receipt_number' => 'RCPT-SEARCH-CASH',
+        ]);
+
+        $otherReceipt = $this->createReceipt($business, $user);
+        $otherReceipt->update([
+            'receipt_number' => 'RCPT-OTHER-001',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withHeaders(['X-Business-ID' => $business->id])
+            ->getJson('/api/businesses/current/receipts?search=SEARCH-CASH');
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath('data.total', 1)
+            ->assertJsonPath('data.data.0.id', $matchingReceipt->id);
+
+        $this->assertNotEquals(
+            $matchingReceipt->id,
+            $otherReceipt->id
+        );
+    }
+
+    public function test_receipt_list_filters_by_inclusive_issue_date_range(): void
+    {
+        [$business, $user] = $this->createBusinessWithUser();
+
+        $this->giveReceiptViewPermission($user, $business);
+
+        $before = $this->createReceipt($business, $user);
+        $before->update([
+            'receipt_number' => 'RCPT-BEFORE',
+            'issued_at' => '2026-09-30 23:59:59',
+        ]);
+
+        $start = $this->createReceipt($business, $user);
+        $start->update([
+            'receipt_number' => 'RCPT-START',
+            'issued_at' => '2026-10-01 00:00:00',
+        ]);
+
+        $end = $this->createReceipt($business, $user);
+        $end->update([
+            'receipt_number' => 'RCPT-END',
+            'issued_at' => '2026-10-10 23:59:59',
+        ]);
+
+        $after = $this->createReceipt($business, $user);
+        $after->update([
+            'receipt_number' => 'RCPT-AFTER',
+            'issued_at' => '2026-10-11 00:00:00',
+        ]);
+
+        $response = $this
+            ->actingAs($user)
+            ->withHeaders(['X-Business-ID' => $business->id])
+            ->getJson(
+                '/api/businesses/current/receipts'
+                    . '?start_date=2026-10-01&end_date=2026-10-10'
+            );
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath('data.total', 2);
+
+        $ids = collect($response->json('data.data'))->pluck('id');
+
+        $this->assertTrue($ids->contains($start->id));
+        $this->assertTrue($ids->contains($end->id));
+        $this->assertFalse($ids->contains($before->id));
+        $this->assertFalse($ids->contains($after->id));
+    }
+
+    public function test_receipt_list_caps_page_size_at_one_hundred(): void
+    {
+        [$business, $user] = $this->createBusinessWithUser();
+
+        $this->giveReceiptViewPermission($user, $business);
+
+        $this->createReceipt($business, $user);
+
+        $response = $this
+            ->actingAs($user)
+            ->withHeaders(['X-Business-ID' => $business->id])
+            ->getJson('/api/businesses/current/receipts?per_page=500');
+
+        $response
+            ->assertSuccessful()
+            ->assertJsonPath('data.per_page', 100);
     }
 }

@@ -15,8 +15,7 @@ class SubscriptionPlanSeederTest extends TestCase
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        expect(SubscriptionPlan::count())
-            ->toBe(7);
+        expect(SubscriptionPlan::count())->toBe(7);
 
         expect(
             SubscriptionPlan::whereIn('slug', [
@@ -31,178 +30,129 @@ class SubscriptionPlanSeederTest extends TestCase
         )->toBe(7);
     }
 
+    public function test_free_plan_has_expected_configuration(): void
+    {
+        $this->seed(SubscriptionPlanSeeder::class);
+
+        $plan = SubscriptionPlan::where('slug', 'free')->firstOrFail();
+
+        expect($plan->name)->toBe('Free');
+        expect($plan->price)->toBe('0.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('monthly');
+        expect($plan->customer_limit)->toBe(5);
+        expect($plan->user_limit)->toBe(1);
+        expect($plan->branch_limit)->toBe(1);
+        expect($plan->transaction_daily_limit)->toBe(10);
+        expect($plan->transaction_monthly_limit)->toBe(30);
+    }
+
     public function test_low_monthly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'low-monthly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'low-monthly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Starter');
-
-        expect($plan->price)
-            ->toBe('3000.00');
-
-        expect($plan->currency)
-            ->toBe('NGN');
-
-        expect($plan->billing_interval)
-            ->toBe('monthly');
-
-        expect($plan->customer_limit)
-            ->toBe(50);
-
-        expect($plan->user_limit)
-            ->toBe(3);
-
-        expect($plan->branch_limit)
-            ->toBe(1);
+        expect($plan->name)->toBe('Starter');
+        expect($plan->price)->toBe('3000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('monthly');
+        expect($plan->customer_limit)->toBe(30);
+        expect($plan->user_limit)->toBe(3);
+        expect($plan->branch_limit)->toBe(1);
+        expect($plan->transaction_daily_limit)->toBe(20);
+        expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
     public function test_low_yearly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'low-yearly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'low-yearly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Starter Annual');
-
-        expect($plan->price)
-            ->toBe('30000.00');
-
-        expect($plan->currency)
-            ->toBe('NGN');
-
-        expect($plan->billing_interval)
-            ->toBe('yearly');
-
-        expect($plan->customer_limit)
-            ->toBe(50);
-
-        expect($plan->user_limit)
-            ->toBe(3);
-
-        expect($plan->branch_limit)
-            ->toBe(1);
+        expect($plan->name)->toBe('Starter Annual');
+        expect($plan->price)->toBe('33000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('yearly');
+        expect($plan->customer_limit)->toBe(30);
+        expect($plan->user_limit)->toBe(3);
+        expect($plan->branch_limit)->toBe(1);
+        expect($plan->transaction_daily_limit)->toBe(20);
+        expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
     public function test_medium_monthly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'medium-monthly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'medium-monthly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Medium Monthly');
-
-        expect($plan->price)
-            ->toBe('10000.00');
-
-        expect($plan->billing_interval)
-            ->toBe('monthly');
-
-        expect($plan->customer_limit)
-            ->toBe(100);
-
-        expect($plan->user_limit)
-            ->toBe(10);
-
-        expect($plan->branch_limit)
-            ->toBe(3);
+        expect($plan->name)->toBe('Medium Monthly');
+        expect($plan->price)->toBe('8000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('monthly');
+        expect($plan->customer_limit)->toBe(100);
+        expect($plan->user_limit)->toBe(5);
+        expect($plan->branch_limit)->toBe(3);
+        expect($plan->transaction_daily_limit)->toBe(50);
+        expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
     public function test_medium_yearly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'medium-yearly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'medium-yearly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Medium Yearly');
-
-        expect($plan->price)
-            ->toBe('100000.00');
-
-        expect($plan->billing_interval)
-            ->toBe('yearly');
-
-        expect($plan->customer_limit)
-            ->toBe(100);
-
-        expect($plan->user_limit)
-            ->toBe(10);
-
-        expect($plan->branch_limit)
-            ->toBe(3);
+        expect($plan->name)->toBe('Medium Yearly');
+        expect($plan->price)->toBe('88000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('yearly');
+        expect($plan->customer_limit)->toBe(100);
+        expect($plan->user_limit)->toBe(5);
+        expect($plan->branch_limit)->toBe(3);
+        expect($plan->transaction_daily_limit)->toBe(50);
+        expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
     public function test_large_monthly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'large-monthly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'large-monthly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Large Monthly');
-
-        expect($plan->price)
-            ->toBe('20000.00');
-
-        expect($plan->billing_interval)
-            ->toBe('monthly');
-
-        expect($plan->customer_limit)
-            ->toBe(500);
-
-        expect($plan->user_limit)
-            ->toBe(50);
-
-        expect($plan->branch_limit)
-            ->toBe(10);
+        expect($plan->name)->toBe('Large Monthly');
+        expect($plan->price)->toBe('15000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('monthly');
+        expect($plan->customer_limit)->toBeNull();
+        expect($plan->user_limit)->toBe(20);
+        expect($plan->branch_limit)->toBe(10);
+        expect($plan->transaction_daily_limit)->toBe(30);
+        expect($plan->transaction_monthly_limit)->toBe(14000);
     }
 
     public function test_large_yearly_plan_has_expected_configuration(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        $plan = SubscriptionPlan::where(
-            'slug',
-            'large-yearly'
-        )->firstOrFail();
+        $plan = SubscriptionPlan::where('slug', 'large-yearly')
+            ->firstOrFail();
 
-        expect($plan->name)
-            ->toBe('Large Yearly');
-
-        expect($plan->price)
-            ->toBe('200000.00');
-
-        expect($plan->billing_interval)
-            ->toBe('yearly');
-
-        expect($plan->customer_limit)
-            ->toBe(500);
-
-        expect($plan->user_limit)
-            ->toBe(50);
-
-        expect($plan->branch_limit)
-            ->toBe(10);
+        expect($plan->name)->toBe('Large Yearly');
+        expect($plan->price)->toBe('165000.00');
+        expect($plan->currency)->toBe('NGN');
+        expect($plan->billing_interval)->toBe('yearly');
+        expect($plan->customer_limit)->toBeNull();
+        expect($plan->user_limit)->toBe(20);
+        expect($plan->branch_limit)->toBe(10);
+        expect($plan->transaction_daily_limit)->toBe(30);
+        expect($plan->transaction_monthly_limit)->toBe(14000);
     }
 
     public function test_seeder_is_idempotent(): void
@@ -210,8 +160,7 @@ class SubscriptionPlanSeederTest extends TestCase
         $this->seed(SubscriptionPlanSeeder::class);
         $this->seed(SubscriptionPlanSeeder::class);
 
-        expect(SubscriptionPlan::count())
-            ->toBe(7);
+        expect(SubscriptionPlan::count())->toBe(7);
 
         expect(
             SubscriptionPlan::whereIn('slug', [
@@ -238,13 +187,7 @@ class SubscriptionPlanSeederTest extends TestCase
     {
         $this->seed(SubscriptionPlanSeeder::class);
 
-        foreach (
-            [
-                'low',
-                'medium',
-                'large',
-            ] as $tier
-        ) {
+        foreach (['low', 'medium', 'large'] as $tier) {
             expect(
                 SubscriptionPlan::where(
                     'slug',
@@ -263,19 +206,14 @@ class SubscriptionPlanSeederTest extends TestCase
 
     public function test_receipt_entitlement_matches_plan_tier(): void
     {
-        $this->seed(
-            SubscriptionPlanSeeder::class
-        );
+        $this->seed(SubscriptionPlanSeeder::class);
 
         $expected = [
             'free' => false,
-
             'low-monthly' => false,
             'low-yearly' => false,
-
             'medium-monthly' => true,
             'medium-yearly' => true,
-
             'large-monthly' => true,
             'large-yearly' => true,
         ];
@@ -290,5 +228,4 @@ class SubscriptionPlanSeederTest extends TestCase
             )->toBe($receiptsEnabled);
         }
     }
-
 }

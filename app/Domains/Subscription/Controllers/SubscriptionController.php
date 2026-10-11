@@ -19,8 +19,7 @@ class SubscriptionController
         private SubscriptionCheckoutService $checkoutService,
         private SubscriptionBillingService $billingService,
         private BusinessContextService $businessContext,
-    ) {
-    }
+    ) {}
 
     /**
      * Get the current business subscription.
@@ -58,25 +57,25 @@ class SubscriptionController
                 'status' => $subscription->status,
 
                 'starts_at' =>
-                    $subscription->starts_at?->toISOString(),
+                $subscription->starts_at?->toISOString(),
 
                 'current_period_start' =>
-                    $subscription->current_period_start?->toISOString(),
+                $subscription->current_period_start?->toISOString(),
 
                 'current_period_end' =>
-                    $subscription->current_period_end?->toISOString(),
+                $subscription->current_period_end?->toISOString(),
 
                 'grace_period_ends_at' =>
-                    $subscription->grace_period_ends_at?->toISOString(),
+                $subscription->grace_period_ends_at?->toISOString(),
 
                 'cancelled_at' =>
-                    $subscription->cancelled_at?->toISOString(),
+                $subscription->cancelled_at?->toISOString(),
 
                 'ended_at' =>
-                    $subscription->ended_at?->toISOString(),
+                $subscription->ended_at?->toISOString(),
 
                 'auto_renew' =>
-                    (bool) $subscription->auto_renew,
+                (bool) $subscription->auto_renew,
 
                 'provider' => $subscription->provider,
 
@@ -88,15 +87,19 @@ class SubscriptionController
                     'price' => $subscription->plan->price,
                     'currency' => $subscription->plan->currency,
                     'billing_interval' =>
-                        $subscription->plan->billing_interval,
+                    $subscription->plan->billing_interval,
                     'customer_limit' =>
-                        $subscription->plan->customer_limit,
+                    $subscription->plan->customer_limit,
                     'user_limit' =>
-                        $subscription->plan->user_limit,
+                    $subscription->plan->user_limit,
                     'branch_limit' =>
-                        $subscription->plan->branch_limit,
+                    $subscription->plan->branch_limit,
+                    'transaction_daily_limit' =>
+                    $subscription->plan->transaction_daily_limit,
+                    'transaction_monthly_limit' =>
+                    $subscription->plan->transaction_monthly_limit,
                     'features' =>
-                        $subscription->plan->features,
+                    $subscription->plan->features,
                 ],
             ],
         ]);
@@ -148,9 +151,9 @@ class SubscriptionController
                 'status' => $subscription->status,
                 'auto_renew' => (bool) $subscription->auto_renew,
                 'current_period_end' =>
-                    $subscription->current_period_end?->toISOString(),
+                $subscription->current_period_end?->toISOString(),
                 'cancelled_at' =>
-                    $subscription->cancelled_at?->toISOString(),
+                $subscription->cancelled_at?->toISOString(),
             ],
         ]);
     }
@@ -174,6 +177,8 @@ class SubscriptionController
                 'customer_limit',
                 'user_limit',
                 'branch_limit',
+                'transaction_daily_limit',
+                'transaction_monthly_limit',
                 'features',
             ]);
 

@@ -17,14 +17,11 @@ class SubscriptionPlanSeeder extends Seeder
                 'price' => 0,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
-
                 'transaction_daily_limit' => 10,
                 'transaction_monthly_limit' => 30,
-
-                'customer_limit' => 10,
+                'customer_limit' => 5,
                 'user_limit' => 1,
                 'branch_limit' => 1,
-
                 'features' => [
                     'pos' => true,
                     'inventory' => true,
@@ -36,7 +33,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => false,
                 ],
-
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
@@ -47,9 +43,9 @@ class SubscriptionPlanSeeder extends Seeder
                 'price' => 3000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
-                'transaction_daily_limit' => 100,
-                'transaction_monthly_limit' => 1000,
-                'customer_limit' => 50,
+                'transaction_daily_limit' => 20,
+                'transaction_monthly_limit' => 900,
+                'customer_limit' => 30,
                 'user_limit' => 3,
                 'branch_limit' => 1,
                 'features' => [
@@ -66,17 +62,16 @@ class SubscriptionPlanSeeder extends Seeder
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
-
             [
                 'name' => 'Starter Annual',
                 'slug' => 'low-yearly',
-                'description' => 'Annual plan for small businesses with two months free.',
-                'price' => 30000,
+                'description' => 'Annual plan for small businesses at a discounted yearly price.',
+                'price' => 33000,
                 'currency' => 'NGN',
                 'billing_interval' => 'yearly',
-                'transaction_daily_limit' => 100,
-                'transaction_monthly_limit' => 1000,
-                'customer_limit' => 50,
+                'transaction_daily_limit' => 20,
+                'transaction_monthly_limit' => 900,
+                'customer_limit' => 30,
                 'user_limit' => 3,
                 'branch_limit' => 1,
                 'features' => [
@@ -93,18 +88,17 @@ class SubscriptionPlanSeeder extends Seeder
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
-
             [
                 'name' => 'Medium Monthly',
                 'slug' => 'medium-monthly',
                 'description' => 'For growing businesses that need more capacity.',
-                'price' => 10000,
+                'price' => 8000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
-                'transaction_daily_limit' => 500,
-                'transaction_monthly_limit' => 5000,
+                'transaction_daily_limit' => 50,
+                'transaction_monthly_limit' => 900,
                 'customer_limit' => 100,
-                'user_limit' => 10,
+                'user_limit' => 5,
                 'branch_limit' => 3,
                 'features' => [
                     'pos' => true,
@@ -120,18 +114,17 @@ class SubscriptionPlanSeeder extends Seeder
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
-
             [
                 'name' => 'Medium Yearly',
                 'slug' => 'medium-yearly',
-                'description' => 'Annual plan for growing businesses with two months free.',
-                'price' => 100000,
+                'description' => 'Annual plan for growing businesses at a discounted yearly price.',
+                'price' => 88000,
                 'currency' => 'NGN',
                 'billing_interval' => 'yearly',
-                'transaction_daily_limit' => 500,
-                'transaction_monthly_limit' => 5000,
+                'transaction_daily_limit' => 50,
+                'transaction_monthly_limit' => 900,
                 'customer_limit' => 100,
-                'user_limit' => 10,
+                'user_limit' => 5,
                 'branch_limit' => 3,
                 'features' => [
                     'pos' => true,
@@ -147,18 +140,17 @@ class SubscriptionPlanSeeder extends Seeder
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
-
             [
                 'name' => 'Large Monthly',
                 'slug' => 'large-monthly',
-                'description' => 'For established businesses operating at larger scale.',
-                'price' => 20000,
+                'description' => 'For established businesses operating at larger scale, with unlimited customers.',
+                'price' => 15000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
-                'transaction_daily_limit' => null,
-                'transaction_monthly_limit' => null,
-                'customer_limit' => 500,
-                'user_limit' => 50,
+                'transaction_daily_limit' => 30,
+                'transaction_monthly_limit' => 14000,
+                'customer_limit' => null,
+                'user_limit' => 20,
                 'branch_limit' => 10,
                 'features' => [
                     'pos' => true,
@@ -174,18 +166,17 @@ class SubscriptionPlanSeeder extends Seeder
                 'paystack_plan_code' => null,
                 'is_active' => true,
             ],
-
             [
                 'name' => 'Large Yearly',
                 'slug' => 'large-yearly',
-                'description' => 'Annual plan for established businesses with two months free.',
-                'price' => 200000,
+                'description' => 'Annual plan for established businesses at a discounted yearly price, with unlimited customers.',
+                'price' => 165000,
                 'currency' => 'NGN',
                 'billing_interval' => 'yearly',
-                'transaction_daily_limit' => null,
-                'transaction_monthly_limit' => null,
-                'customer_limit' => 500,
-                'user_limit' => 50,
+                'transaction_daily_limit' => 30,
+                'transaction_monthly_limit' => 14000,
+                'customer_limit' => null,
+                'user_limit' => 20,
                 'branch_limit' => 10,
                 'features' => [
                     'pos' => true,
@@ -205,9 +196,7 @@ class SubscriptionPlanSeeder extends Seeder
 
         foreach ($plans as $plan) {
             SubscriptionPlan::updateOrCreate(
-                [
-                    'slug' => $plan['slug'],
-                ],
+                ['slug' => $plan['slug']],
                 $plan
             );
         }

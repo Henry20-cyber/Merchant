@@ -40,19 +40,41 @@ class BranchContextService
     /**
      * Get the current branch for the authenticated user.
      */
+
+    /**
+     * Get the current branch for the authenticated user.
+     * Automatically fall back to the business Head Office
+     * when no valid branch is selected in the session.
+     */
     public function current(
         User $user,
         Business $business
     ): ?Branch {
+        $this->ensureMembership($user, $business);
+
         $branchId = session('current_branch_id');
 
-        if (! $branchId) {
-            return null;
+        // Preserve the user's current selection if it is valid.
+        if ($branchId) {
+            $branch = Branch::query()
+                ->whereKey($branchId)
+                ->where('business_id', $business->id)
+                ->whereHas('business.memberships', function ($query) use ($user, $business) {
+                    $query
+                        ->where('user_id', $user->id)
+                        ->where('business_id', $business->id)
+                        ->where('status', 'active');
+                })
+                ->first();
+
+            if ($branch) {
+                return $branch;
+            }
         }
 
-        return Branch::query()
-            ->whereKey($branchId)
-            ->where('business_id', $business->id)
+        // No valid selection: find the business Head Office.
+        $headOffice = $business->branches()
+            ->where('is_head_office', true)
             ->whereHas('business.memberships', function ($query) use ($user, $business) {
                 $query
                     ->where('user_id', $user->id)
@@ -60,7 +82,22 @@ class BranchContextService
                     ->where('status', 'active');
             })
             ->first();
+
+        if (! $headOffice) {
+            // Do not leave a stale branch ID in the session.
+            session()->forget('current_branch_id');
+
+            return null;
+        }
+
+        // Persist the fallback so subsequent requests are consistent.
+        session([
+            'current_branch_id' => $headOffice->id,
+        ]);
+
+        return $headOffice;
     }
+
 
     /**
      * Clear the current branch.
