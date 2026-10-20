@@ -6,6 +6,7 @@ use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Organization\Services\BranchContextService;
+use App\Domains\Payment\Models\Payment;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Service\Models\Service;
@@ -191,6 +192,21 @@ class SalesDashboardApiTest extends TestCase
         return $sale;
     }
 
+    private function createPaidPayment(
+        Business $business,
+        Sale $sale,
+        float $amount
+    ): Payment {
+        return Payment::create([
+            'business_id' => $business->id,
+            'sale_id' => $sale->id,
+            'amount' => $amount,
+            'method' => 'cash',
+            'status' => 'paid',
+            'paid_at' => now(),
+        ]);
+    }
+
     public function test_authorized_user_can_view_sales_dashboard(): void
     {
         $business = $this->createBusinessWithSubscription();
@@ -222,7 +238,7 @@ class SalesDashboardApiTest extends TestCase
             1000
         );
 
-        $this->createProductSale(
+        $sale = $this->createProductSale(
             $business,
             $user,
             $product,
@@ -230,6 +246,8 @@ class SalesDashboardApiTest extends TestCase
             5,
             1000
         );
+
+        $this->createPaidPayment($business, $sale, 5000);
 
         $response = $this->getJson(
             '/api/businesses/current/sales/dashboard'
@@ -309,7 +327,7 @@ class SalesDashboardApiTest extends TestCase
             1000
         );
 
-        $this->createProductSale(
+        $saleA = $this->createProductSale(
             $businessA,
             $user,
             $productA,
@@ -317,6 +335,8 @@ class SalesDashboardApiTest extends TestCase
             5,
             1000
         );
+
+        $this->createPaidPayment($businessA, $saleA, 5000);
 
         $businessBOwner = $businessB->users()->first();
 
@@ -373,12 +393,14 @@ class SalesDashboardApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->createServiceSale(
+        $sale = $this->createServiceSale(
             $business,
             $user,
             $service,
             2
         );
+
+        $this->createPaidPayment($business, $sale, 30000);
 
         $response = $this->getJson(
             '/api/businesses/current/sales/dashboard'
@@ -399,6 +421,21 @@ class SalesDashboardApiTest extends TestCase
         $response->assertJsonPath(
             'data.top_items.0.item_type',
             'service'
+        );
+
+        $response->assertJsonPath(
+            'data.advanced.top_services.0.service_name',
+            'Hair Braiding'
+        );
+
+        $response->assertJsonPath(
+            'data.advanced.top_services.0.item_type',
+            'service'
+        );
+
+        $response->assertJsonPath(
+            'data.advanced.top_services.0.revenue',
+            30000
         );
     }
 }

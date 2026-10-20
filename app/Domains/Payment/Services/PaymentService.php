@@ -128,7 +128,7 @@ class PaymentService
          * Create payment.
          * -------------------------------------------------------------
          */
-        return Payment::create([
+        $payment = Payment::create([
             'business_id' => $business->id,
             'sale_id' => $sale->id,
             'amount' => $amount,
@@ -136,14 +136,14 @@ class PaymentService
             'status' => $status,
             'reference' => $data['reference'] ?? null,
             'metadata' => $data['metadata'] ?? null,
-
-            /*
-             * A payment only receives paid_at when it is actually paid.
-             */
-            'paid_at' => $status === 'paid'
-                ? now()
-                : null,
+            'paid_at' => $status === 'paid' ? now() : null,
         ]);
+
+        if ($payment->status === 'paid') {
+            $this->syncSalePaymentStatus($sale);
+        }
+
+        return $payment;
     }
 
     /**
@@ -176,6 +176,30 @@ class PaymentService
             (string) $sale->total,
             $this->paidAmount($sale)
         );
+    }
+
+    /**
+     * Synchronize a sale's payment status with successful payments.
+     */
+    public function syncSalePaymentStatus(Sale $sale): Sale
+    {
+        $paidAmount = $this->paidAmount($sale);
+        $balance = $this->remainingBalance($sale);
+
+        if (bccomp($balance, '0.00', 2) <= 0) {
+            $status = 'paid';
+        } elseif (bccomp($paidAmount, '0.00', 2) > 0) {
+            $status = 'partially_paid';
+        } else {
+            $status = 'unpaid';
+        }
+
+        if ($sale->payment_status !== $status) {
+            $sale->payment_status = $status;
+            $sale->save();
+        }
+
+        return $sale->refresh();
     }
 
     /**

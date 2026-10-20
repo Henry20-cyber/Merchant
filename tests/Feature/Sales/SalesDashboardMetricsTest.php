@@ -5,6 +5,7 @@ namespace Tests\Feature\Sales;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
+use App\Domains\Payment\Models\Payment;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
@@ -402,78 +403,100 @@ class SalesDashboardMetricsTest extends TestCase
     }
 
     public function test_transaction_counts_are_scoped_to_business(): void
-    {
-        $businessA = Business::factory()->create();
-        $businessB = Business::factory()->create();
+{
+    $businessA = Business::factory()->create();
+    $businessB = Business::factory()->create();
 
-        $cashierA = User::factory()->create();
-        $cashierB = User::factory()->create();
+    $cashierA = User::factory()->create();
+    $cashierB = User::factory()->create();
 
-        $branchA = $this->branchFor($businessA);
-        $this->branchFor($businessB);
+    $branchA = $this->branchFor($businessA);
+    $this->branchFor($businessB);
 
-        [$productA, $unitA] = $this->createProduct(
-            $businessA,
-            'Product A',
-            1000
-        );
+    [$productA, $unitA] = $this->createProduct(
+        $businessA,
+        'Product A',
+        1000
+    );
 
-        [$productB, $unitB] = $this->createProduct(
-            $businessB,
-            'Product B',
-            1000
-        );
+    [$productB, $unitB] = $this->createProduct(
+        $businessB,
+        'Product B',
+        1000
+    );
 
-        $today = Carbon::create(
-            2026,
-            6,
-            17,
-            10,
-            0,
-            0,
-            'UTC'
-        );
+    $today = Carbon::create(
+        2026,
+        6,
+        17,
+        10,
+        0,
+        0,
+        'UTC'
+    );
 
-        $this->createSale(
-            $businessA,
-            $cashierA,
-            [[
-                'product_id' => $productA->id,
-                'product_unit_id' => $unitA->id,
-                'quantity' => 1,
-                'unit_price' => 1000,
-            ]],
-            $today
-        );
+    $saleA = $this->createSale(
+        $businessA,
+        $cashierA,
+        [[
+            'product_id' => $productA->id,
+            'product_unit_id' => $unitA->id,
+            'quantity' => 1,
+            'unit_price' => 1000,
+        ]],
+        $today
+    );
 
-        $this->createSale(
-            $businessB,
-            $cashierB,
-            [[
-                'product_id' => $productB->id,
-                'product_unit_id' => $unitB->id,
-                'quantity' => 10,
-                'unit_price' => 1000,
-            ]],
-            $today
-        );
+    $saleB = $this->createSale(
+        $businessB,
+        $cashierB,
+        [[
+            'product_id' => $productB->id,
+            'product_unit_id' => $unitB->id,
+            'quantity' => 10,
+            'unit_price' => 1000,
+        ]],
+        $today
+    );
 
-        $analytics = app(
-            SalesAnalyticsService::class
-        )->dashboard(
-            $businessA,
-            $branchA,
-            $today
-        );
+    Payment::create([
+        'business_id' => $businessA->id,
+        'sale_id' => $saleA->id,
+        'amount' => 1000,
+        'method' => 'cash',
+        'status' => 'paid',
+        'reference' => null,
+        'metadata' => null,
+        'paid_at' => $today,
+    ]);
 
-        $this->assertEquals(
-            1,
-            $analytics['daily']['transactions']
-        );
+    Payment::create([
+        'business_id' => $businessB->id,
+        'sale_id' => $saleB->id,
+        'amount' => 10000,
+        'method' => 'cash',
+        'status' => 'paid',
+        'reference' => null,
+        'metadata' => null,
+        'paid_at' => $today,
+    ]);
 
-        $this->assertEquals(
-            1000,
-            $analytics['daily']['revenue']
-        );
-    }
+    $analytics = app(
+        SalesAnalyticsService::class
+    )->dashboard(
+        $businessA,
+        $branchA,
+        $today
+    );
+
+    $this->assertEquals(
+        1,
+        $analytics['daily']['transactions']
+    );
+
+    $this->assertEquals(
+        1000,
+        $analytics['daily']['revenue']
+    );
+}
 }

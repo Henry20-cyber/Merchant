@@ -4,6 +4,8 @@ namespace App\Domains\Payment\Services;
 
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
+use App\Domains\Sales\Models\Sale;
+use App\Domains\Payment\Services\PaymentService;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Services\BusinessVatService;
 use App\Domains\Subscription\Models\Subscription;
@@ -15,8 +17,10 @@ class PaymentConfirmationService
 {
     public function __construct(
         private PaymentGateway $paymentGateway,
-        private BusinessVatService $businessVatService
+        private BusinessVatService $businessVatService,
+        private PaymentService $paymentService,
     ) {
+        
     }
 
     /**
@@ -158,6 +162,22 @@ class PaymentConfirmationService
                 'paid_at' => now(),
             ])->save();
 
+            if ($payment->sale_id !== null) {
+                $sale = Sale::query()
+                    ->whereKey($payment->sale_id)
+                    ->where('business_id', $payment->business_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $sale) {
+                    throw ValidationException::withMessages([
+                        'sale' => 'The payment sale could not be found.',
+                    ]);
+                }
+
+                $this->paymentService->syncSalePaymentStatus($sale);
+            }
+
             /*
              * Subscription payments require recurring-billing
              * fulfilment.
@@ -292,10 +312,10 @@ class PaymentConfirmationService
                 'provider' => 'paystack',
 
                 'provider_customer_code' =>
-                    $customerCode,
+                $customerCode,
 
                 'provider_authorization_code' =>
-                    $authorizationCode,
+                $authorizationCode,
 
                 'starts_at' => $now,
                 'current_period_start' => $now,
@@ -313,13 +333,13 @@ class PaymentConfirmationService
                 'provider' => 'paystack',
 
                 'provider_customer_code' =>
-                    $customerCode,
+                $customerCode,
 
                 'provider_authorization_code' =>
-                    $authorizationCode,
+                $authorizationCode,
 
                 'starts_at' =>
-                    $subscription->starts_at ?? $now,
+                $subscription->starts_at ?? $now,
 
                 'current_period_start' => $now,
                 'current_period_end' => $periodEnd,
@@ -374,17 +394,17 @@ class PaymentConfirmationService
          */
         $subscription->forceFill([
             'provider_customer_code' =>
-                $providerSubscription['customer_code']
+            $providerSubscription['customer_code']
                 ?? $customerCode,
 
             'provider_authorization_code' =>
-                $authorizationCode,
+            $authorizationCode,
 
             'provider_subscription_code' =>
-                $providerSubscription['subscription_code'],
+            $providerSubscription['subscription_code'],
 
             'provider_email_token' =>
-                $providerSubscription['email_token']
+            $providerSubscription['email_token']
                 ?? null,
         ])->save();
 

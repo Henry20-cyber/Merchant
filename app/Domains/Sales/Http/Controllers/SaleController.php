@@ -118,6 +118,7 @@ class SaleController extends Controller
                 'receipt:id,sale_id,receipt_number,status',
                 'items.product',
                 'items.productUnit',
+                'items.service',
             ])
             ->latest();
 

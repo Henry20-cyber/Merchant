@@ -64,9 +64,10 @@ class CreditService
             ]);
         }
 
-        if (Credit::query()
-            ->where('sale_id', $sale->id)
-            ->exists()
+        if (
+            Credit::query()
+                ->where('sale_id', $sale->id)
+                ->exists()
         ) {
             throw ValidationException::withMessages([
                 'sale' => [
@@ -112,7 +113,7 @@ class CreditService
     {
         $outstanding = $this->outstandingAmount($credit);
 
-        if (bccomp($outstanding, '0.00', 2) === 0) {
+        if (bccomp($outstanding, '0.00', 2) <= 0) {
             return 'settled';
         }
 
@@ -137,10 +138,38 @@ class CreditService
     }
 
     /**
+     * Synchronize the sale's payment status with its recorded payments.
+     *
+     * unpaid          = no successful payments
+     * partially_paid  = some amount paid, balance remains
+     * paid            = the full sale amount has been paid
+     */
+    private function syncSalePaymentStatus(Sale $sale): Sale
+    {
+        $paidAmount = $this->paymentService->paidAmount($sale);
+        $outstanding = $this->paymentService->remainingBalance($sale);
+
+        if (bccomp($outstanding, '0.00', 2) <= 0) {
+            $paymentStatus = 'paid';
+        } elseif (bccomp($paidAmount, '0.00', 2) > 0) {
+            $paymentStatus = 'partially_paid';
+        } else {
+            $paymentStatus = 'unpaid';
+        }
+
+        if ($sale->payment_status !== $paymentStatus) {
+            $sale->payment_status = $paymentStatus;
+            $sale->save();
+        }
+
+        return $sale->refresh();
+    }
+
+    /**
      * Record a repayment against a credit sale.
      *
-     * The existing PaymentService remains the source of truth
-     * for the actual payment.
+     * PaymentService remains the source of truth for actual payments.
+     * The sale and credit statuses are updated in the same transaction.
      */
     public function recordPayment(
         Business $business,
@@ -178,12 +207,17 @@ class CreditService
                 $credit->sale
             );
 
+            // Record the actual repayment.
             $payment = $this->paymentService->create(
                 $business,
                 $credit->sale,
                 $data
             );
 
+            // Update the sale's payment status from recorded payments.
+            $this->syncSalePaymentStatus($credit->sale);
+
+            // Update the credit's independent status.
             $this->refreshStatus($credit);
 
             return $payment;
@@ -199,7 +233,10 @@ class CreditService
             abort(403, 'Branch does not belong to this business.');
         }
 
-        if ($sale->business_id !== $business->id || $sale->branch_id !== $branch->id) {
+        if (
+            $sale->business_id !== $business->id ||
+            $sale->branch_id !== $branch->id
+        ) {
             throw ValidationException::withMessages([
                 'sale' => [
                     'The sale does not belong to the current branch.',

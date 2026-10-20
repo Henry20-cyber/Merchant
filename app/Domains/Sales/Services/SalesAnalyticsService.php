@@ -168,13 +168,31 @@ class SalesAnalyticsService
         $end = ($endDate ?? $date)->endOfDay();
 
         // One query for all daily revenue + transaction counts in the period.
-        $dailyRows = Sale::query()
+        $dailyRows = DB::table('sales')
+            ->leftJoin('payments', function ($join) use ($business) {
+                $join->on('payments.sale_id', '=', 'sales.id')
+                    ->where('payments.business_id', $business->id)
+                    ->where('payments.status', 'paid');
+            })
+            ->where('sales.business_id', $business->id)
+            ->where('sales.branch_id', $branch->id)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->selectRaw('DATE(sales.created_at) AS sale_date')
+            ->selectRaw('COALESCE(SUM(payments.amount), 0) AS revenue')
+            ->selectRaw('COUNT(DISTINCT sales.id) AS transactions')
+            ->groupByRaw('DATE(sales.created_at)')
+            ->orderBy('sale_date')
+            ->get()
+            ->keyBy(fn($row) => (string) $row->sale_date);
+
+        // Sales value is aggregated separately so multiple payment records
+        // cannot multiply a sale's total.
+        $dailySalesRows = DB::table('sales')
             ->where('business_id', $business->id)
             ->where('branch_id', $branch->id)
             ->whereBetween('created_at', [$start, $end])
-            ->selectRaw("DATE(created_at) AS sale_date")
-            ->selectRaw('SUM(total) AS revenue')
-            ->selectRaw('COUNT(*) AS transactions')
+            ->selectRaw('DATE(created_at) AS sale_date')
+            ->selectRaw('COALESCE(SUM(total), 0) AS sales_value')
             ->groupByRaw('DATE(created_at)')
             ->orderBy('sale_date')
             ->get()
@@ -204,13 +222,19 @@ class SalesAnalyticsService
             $dateKey = $cursor->toDateString();
 
             $row = $dailyRows->get($dateKey);
+            $salesRow = $dailySalesRows->get($dateKey);
             $expenseRow = $dailyExpenseRows->get($dateKey);
+
+            $salesValue = $salesRow
+                ? (float) $salesRow->sales_value
+                : 0.0;
 
             $revenue = $row ? (float) $row->revenue : 0.0;
             $expenses = $expenseRow ? (float) $expenseRow->expenses : 0.0;
 
             $daily[] = [
                 'date' => $cursor->format('M j'),
+                'sales_value' => $salesValue,
                 'revenue' => $revenue,
                 'expenses' => $expenses,
                 'net_result' => $revenue - $expenses,
@@ -221,19 +245,83 @@ class SalesAnalyticsService
         }
 
         // One aggregate query for the period total.
-        $periodTotals = Sale::query()
+        $periodTotals = DB::table('sales')
+            ->leftJoin('payments', function ($join) use ($business) {
+                $join->on('payments.sale_id', '=', 'sales.id')
+                    ->where('payments.business_id', $business->id)
+                    ->where('payments.status', 'paid');
+            })
+            ->where('sales.business_id', $business->id)
+            ->where('sales.branch_id', $branch->id)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->selectRaw('COALESCE(SUM(payments.amount), 0) AS revenue')
+            ->selectRaw('COUNT(DISTINCT sales.id) AS transactions')
+            ->first();
+
+        $salesValue = (float) DB::table('sales')
             ->where('business_id', $business->id)
             ->where('branch_id', $branch->id)
             ->whereBetween('created_at', [$start, $end])
-            ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
-            ->selectRaw('COUNT(*) AS transactions')
+            ->sum('total');
+
+        // Aggregate paid payments per sale first to prevent duplicate
+        // credit amounts when a customer makes multiple repayments.
+        $paidPaymentsBySale = DB::table('payments')
+            ->select('sale_id')
+            ->selectRaw('SUM(amount) AS paid_amount')
+            ->where('business_id', $business->id)
+            ->where('status', 'paid')
+            ->whereNotNull('sale_id')
+            ->groupBy('sale_id');
+
+        $creditTotals = DB::table('credits')
+            ->join('sales', 'sales.id', '=', 'credits.sale_id')
+            ->leftJoinSub(
+                $paidPaymentsBySale,
+                'paid_payments',
+                fn($join) => $join->on(
+                    'paid_payments.sale_id',
+                    '=',
+                    'sales.id'
+                )
+            )
+            ->where('credits.business_id', $business->id)
+            ->where('sales.business_id', $business->id)
+            ->where('sales.branch_id', $branch->id)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->selectRaw(
+                'COALESCE(SUM(credits.original_amount), 0) AS credit_sold'
+            )
+            ->selectRaw(
+                'COALESCE(SUM(COALESCE(paid_payments.paid_amount, 0)), 0) AS credit_repayments'
+            )
+            ->selectRaw(
+                'COALESCE(SUM(GREATEST(
+            credits.original_amount - COALESCE(paid_payments.paid_amount, 0),
+            0
+        )), 0) AS outstanding_credit'
+            )
             ->first();
+
+        $creditSold = (float) ($creditTotals?->credit_sold ?? 0);
+        $creditRepayments = (float) ($creditTotals?->credit_repayments ?? 0);
+        $outstandingCredit = (float) ($creditTotals?->outstanding_credit ?? 0);
+
+        $creditCollectionProgress = $creditSold > 0
+            ? round(($creditRepayments / $creditSold) * 100, 2)
+            : 0.0;
 
         $revenue = (float) ($periodTotals?->revenue ?? 0);
         $transactions = (int) ($periodTotals?->transactions ?? 0);
 
         // One aggregate query for top products/services in the same period.
-        $top = $this->topItems($business, $branch, 8, $start, $end, $revenue);
+        $top = $this->topItems(
+            $business,
+            $branch,
+            8,
+            $start,
+            $end
+        );
 
         // Advanced analytics use the selected period consistently.
         $expenses = $this->expensesBetween(
@@ -257,6 +345,7 @@ class SalesAnalyticsService
                 'start' => $start->toDateString(),
                 'end' => $end->toDateString(),
             ],
+            'sales_value' => $salesValue,
             'revenue' => $revenue,
             'expenses' => $expenses,
             'net_result' => $netResult,
@@ -264,6 +353,12 @@ class SalesAnalyticsService
             'average_transaction_value' => $transactions > 0
                 ? round($revenue / $transactions, 2)
                 : 0,
+            'credit_performance' => [
+                'credit_sold' => $creditSold,
+                'repayments_received' => $creditRepayments,
+                'outstanding_credit' => $outstandingCredit,
+                'collection_progress' => $creditCollectionProgress,
+            ],
             'daily' => $daily,
             'top_items' => $top,
             'revenue_breakdown' => $revenueBreakdown,
@@ -418,107 +513,129 @@ class SalesAnalyticsService
             ->all();
     }
 
+
     private function revenueBetween(
         Business $business,
         ?Branch $branch,
         CarbonInterface $start,
         CarbonInterface $end
     ): float {
-        $query = Sale::query()
-            ->where('business_id', $business->id)
-            ->whereBetween('created_at', [$start, $end]);
+        $query = DB::table('payments')
+            ->join('sales', 'sales.id', '=', 'payments.sale_id')
+            ->where('payments.business_id', $business->id)
+            ->where('sales.business_id', $business->id)
+            ->where('payments.status', 'paid')
+            ->whereBetween('sales.created_at', [$start, $end]);
 
         if ($branch !== null) {
-            $query->where('branch_id', $branch->id);
+            $query->where('sales.branch_id', $branch->id);
         }
 
-        return (float) $query->sum('total');
+        return (float) $query->sum('payments.amount');
     }
+
 
     private function dashboardAdvanced(
-    Business $business,
-    Branch $branch,
-    CarbonInterface $date
-): array {
-    $start = $date->copy()->subDays(13)->startOfDay();
-    $end = $date->copy()->endOfDay();
+        Business $business,
+        Branch $branch,
+        CarbonInterface $date
+    ): array {
+        $start = $date->copy()->subDays(13)->startOfDay();
+        $end = $date->copy()->endOfDay();
 
-    $dailyRows = Sale::query()
-        ->where('business_id', $business->id)
-        ->where('branch_id', $branch->id)
-        ->whereBetween('created_at', [$start, $end])
-        ->selectRaw('DATE(created_at) AS sale_date')
-        ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
-        ->selectRaw('COUNT(*) AS transactions')
-        ->groupByRaw('DATE(created_at)')
-        ->orderBy('sale_date')
-        ->get()
-        ->keyBy(fn ($row) => (string) $row->sale_date);
+        $dailyRows = DB::table('sales')
+            ->leftJoin('payments', function ($join) use ($business) {
+                $join->on('payments.sale_id', '=', 'sales.id')
+                    ->where('payments.business_id', $business->id)
+                    ->where('payments.status', 'paid');
+            })
+            ->where('sales.business_id', $business->id)
+            ->where('sales.branch_id', $branch->id)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->selectRaw('DATE(sales.created_at) AS sale_date')
+            ->selectRaw('COALESCE(SUM(payments.amount), 0) AS revenue')
+            ->selectRaw('COUNT(DISTINCT sales.id) AS transactions')
+            ->groupByRaw('DATE(sales.created_at)')
+            ->orderBy('sale_date')
+            ->get()
+            ->keyBy(fn($row) => (string) $row->sale_date);
 
-    $daily = [];
+        $daily = [];
 
-    for ($day = 0; $day < 14; $day++) {
-        $cursor = $start->copy()->addDays($day);
-        $dateKey = $cursor->toDateString();
+        for ($day = 0; $day < 14; $day++) {
+            $cursor = $start->copy()->addDays($day);
+            $dateKey = $cursor->toDateString();
 
-        $row = $dailyRows->get($dateKey);
+            $row = $dailyRows->get($dateKey);
 
-        $daily[] = [
-            'date' => $cursor->format('M j'),
-            'revenue' => $row
-                ? (float) $row->revenue
-                : 0.0,
-            'transactions' => $row
-                ? (int) $row->transactions
+            $daily[] = [
+                'date' => $cursor->format('M j'),
+                'revenue' => $row
+                    ? (float) $row->revenue
+                    : 0.0,
+                'transactions' => $row
+                    ? (int) $row->transactions
+                    : 0,
+            ];
+        }
+
+        $totals = DB::table('sales')
+            ->leftJoin('payments', function ($join) use ($business) {
+                $join->on('payments.sale_id', '=', 'sales.id')
+                    ->where('payments.business_id', $business->id)
+                    ->where('payments.status', 'paid');
+            })
+            ->where('sales.business_id', $business->id)
+            ->where('sales.branch_id', $branch->id)
+            ->whereBetween('sales.created_at', [$start, $end])
+            ->selectRaw('COALESCE(SUM(payments.amount), 0) AS revenue')
+            ->selectRaw('COUNT(DISTINCT sales.id) AS transactions')
+            ->first();
+
+        $revenue = (float) ($totals?->revenue ?? 0);
+        $transactions = (int) ($totals?->transactions ?? 0);
+
+        $topItems = $this->topItems(
+            $business,
+            $branch,
+            5,
+            $start,
+            $end
+        );
+
+        $bestDay = collect($daily)
+            ->sortByDesc('revenue')
+            ->first();
+
+        return [
+            'period' => [
+                'start' => $start->toDateString(),
+                'end' => $end->toDateString(),
+            ],
+
+            'revenue' => $revenue,
+
+            'transactions' => $transactions,
+
+            'average_transaction_value' => $transactions > 0
+                ? round($revenue / $transactions, 2)
                 : 0,
+
+            'daily' => $daily,
+
+            'top_items' => $topItems,
+
+            'top_services' => $this->topServices(
+                $business,
+                $branch,
+                5,
+                $start,
+                $end
+            ),
+
+            'best_day' => $bestDay,
         ];
     }
-
-    $totals = Sale::query()
-        ->where('business_id', $business->id)
-        ->where('branch_id', $branch->id)
-        ->whereBetween('created_at', [$start, $end])
-        ->selectRaw('COALESCE(SUM(total), 0) AS revenue')
-        ->selectRaw('COUNT(*) AS transactions')
-        ->first();
-
-    $revenue = (float) ($totals?->revenue ?? 0);
-    $transactions = (int) ($totals?->transactions ?? 0);
-
-    $topItems = $this->topItems(
-        $business,
-        $branch,
-        5,
-        $start,
-        $end,
-        $revenue
-    );
-
-    $bestDay = collect($daily)
-        ->sortByDesc('revenue')
-        ->first();
-
-    return [
-        'period' => [
-            'start' => $start->toDateString(),
-            'end' => $end->toDateString(),
-        ],
-
-        'revenue' => $revenue,
-
-        'transactions' => $transactions,
-
-        'average_transaction_value' => $transactions > 0
-            ? round($revenue / $transactions, 2)
-            : 0,
-
-        'daily' => $daily,
-
-        'top_items' => $topItems,
-
-        'best_day' => $bestDay,
-    ];
-}
 
     private function transactionsBetween(
         Business $business,
@@ -647,6 +764,84 @@ class SalesAnalyticsService
             ->values()
             ->all();
     }
+
+
+    /**
+     * Return the highest-revenue services for the selected branch and period.
+     */
+    private function topServices(
+        Business $business,
+        ?Branch $branch = null,
+        int $limit = 5,
+        ?CarbonInterface $start = null,
+        ?CarbonInterface $end = null,
+    ): array {
+        $query = SaleItem::query()
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('services', 'services.id', '=', 'sale_items.service_id')
+            ->where('sales.business_id', $business->id)
+            ->whereNotNull('sale_items.service_id');
+
+        if ($branch !== null) {
+            $query->where('sales.branch_id', $branch->id);
+        }
+
+        if ($start !== null && $end !== null) {
+            $query->whereBetween('sales.created_at', [$start, $end]);
+        }
+
+        $rows = $query
+            ->select([
+                'sale_items.service_id',
+                'services.name as service_name',
+            ])
+            ->selectRaw('SUM(sale_items.quantity) AS units_sold')
+            ->selectRaw('SUM(sale_items.total) AS revenue')
+            ->groupBy('sale_items.service_id', 'services.name')
+            ->orderByDesc('revenue')
+            ->limit($limit)
+            ->get();
+
+        $serviceRevenue = (float) SaleItem::query()
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->where('sales.business_id', $business->id)
+            ->whereNotNull('sale_items.service_id')
+            ->when(
+                $branch !== null,
+                fn($query) => $query->where(
+                    'sales.branch_id',
+                    $branch->id
+                )
+            )
+            ->when(
+                $start !== null && $end !== null,
+                fn($query) => $query->whereBetween(
+                    'sales.created_at',
+                    [$start, $end]
+                )
+            )
+            ->sum('sale_items.total');
+
+        return $rows
+            ->map(function ($row) use ($serviceRevenue): array {
+                $revenue = (float) $row->revenue;
+
+                return [
+                    'service_id' => $row->service_id,
+                    'service_name' => $row->service_name,
+                    'name' => $row->service_name,
+                    'item_type' => 'service',
+                    'units_sold' => (float) $row->units_sold,
+                    'revenue' => $revenue,
+                    'percentage' => $serviceRevenue > 0
+                        ? round(($revenue / $serviceRevenue) * 100, 1)
+                        : 0.0,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
 
     private function revenueBreakdown(
         Business $business,

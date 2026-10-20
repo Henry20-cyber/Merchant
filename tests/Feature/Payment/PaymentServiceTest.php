@@ -124,6 +124,78 @@ class PaymentServiceTest extends TestCase
             ->toBeNull();
     }
 
+
+public function test_full_payment_marks_unpaid_sale_as_paid(): void
+{
+    [$business, $user] = $this->createBusiness();
+
+    $sale = $this->createSale($business, $user, 10000);
+    $sale->update(['payment_status' => 'unpaid']);
+
+    $service = app(
+        \App\Domains\Payment\Services\PaymentService::class
+    );
+
+    $service->create($business, $sale, [
+        'amount' => 10000,
+        'method' => 'cash',
+        'status' => 'paid',
+    ]);
+
+    expect($sale->fresh()->payment_status)->toBe('paid');
+}
+
+public function test_partial_payment_marks_unpaid_sale_as_partially_paid(): void
+{
+    [$business, $user] = $this->createBusiness();
+
+    $sale = $this->createSale($business, $user, 10000);
+    $sale->update(['payment_status' => 'unpaid']);
+
+    $service = app(
+        \App\Domains\Payment\Services\PaymentService::class
+    );
+
+    $service->create($business, $sale, [
+        'amount' => 4000,
+        'method' => 'cash',
+        'status' => 'paid',
+    ]);
+
+    expect($sale->fresh()->payment_status)
+        ->toBe('partially_paid');
+
+    expect($service->paidAmount($sale->fresh()))
+        ->toBe('4000.00');
+
+    expect($service->remainingBalance($sale->fresh()))
+        ->toBe('6000.00');
+}
+
+public function test_pending_payment_does_not_mark_unpaid_sale_as_paid(): void
+{
+    [$business, $user] = $this->createBusiness();
+
+    $sale = $this->createSale($business, $user, 10000);
+    $sale->update(['payment_status' => 'unpaid']);
+
+    $service = app(
+        \App\Domains\Payment\Services\PaymentService::class
+    );
+
+    $service->create($business, $sale, [
+        'amount' => 10000,
+        'method' => 'bank_transfer',
+        'status' => 'pending',
+        'reference' => 'TRX-PENDING-STATUS',
+    ]);
+
+    expect($sale->fresh()->payment_status)->toBe('unpaid');
+
+    expect($service->paidAmount($sale->fresh()))
+        ->toBe('0.00');
+}
+
     /*
     |--------------------------------------------------------------------------
     | Amount validation

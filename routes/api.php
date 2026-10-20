@@ -337,7 +337,6 @@ Route::middleware('auth:sanctum')->group(function () {
     ])->middleware([
         'business.context',
         'subscription',
-        'permission:branches.view',
     ]);
 
 

@@ -1,32 +1,19 @@
 <?php
 
-
-
 namespace Tests\Feature\Sales;
-
-
 
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\Branch;
-
 use App\Domains\Product\Models\Product;
-
+use App\Domains\Payment\Models\Payment;
 use App\Domains\Product\Models\ProductUnit;
-
 use App\Domains\Service\Models\Service;
-
 use App\Domains\Sales\Models\Sale;
-
 use App\Domains\Sales\Models\SaleItem;
-
 use App\Domains\Expenses\Models\Expense;
-
 use App\Models\User;
-
 use Illuminate\Foundation\Testing\RefreshDatabase;
-
 use Tests\TestCase;
-
 use Carbon\Carbon;
 
 
@@ -102,57 +89,56 @@ class SalesDashboardAnalyticsTest extends TestCase
 
 
         return [$product, $unit];
-
     }
 
 
 
-   private function createSale(
+    private function createSale(
 
-    Business $business,
+        Business $business,
 
-    User $cashier,
+        User $cashier,
 
-    array $items,
+        array $items,
 
-    ?string $createdAt = null
+        ?string $createdAt = null
 
-): Sale {
+    ): Sale {
 
-    $subtotal = collect($items)->sum(
+        $subtotal = collect($items)->sum(
 
-        fn ($item) => $item['quantity'] * $item['unit_price']
+            fn($item) => $item['quantity'] * $item['unit_price']
 
-    );
-
-
-
-    $sale = new Sale();
+        );
 
 
 
-    $sale->business_id = $business->id;
-    $sale->branch_id = $this->branchFor($business)->id;
-
-    $sale->cashier_id = $cashier->id;
-
-    $sale->subtotal = $subtotal;
-
-    $sale->discount = 0;
-
-    $sale->vat_amount = 0;
-
-    $sale->total = $subtotal;
-
-    $sale->payment_method = 'cash';
-
-    $sale->payment_status = 'paid';
-
-    $sale->status = 'completed';
+        $sale = new Sale();
 
 
 
-    /*
+        $sale->business_id = $business->id;
+        $sale->branch_id = $this->branchFor($business)->id;
+
+        $sale->cashier_id = $cashier->id;
+
+        $sale->subtotal = $subtotal;
+
+        $sale->discount = 0;
+
+        $sale->vat_amount = 0;
+
+        $sale->total = $subtotal;
+
+        $sale->payment_method = 'cash';
+
+        $sale->payment_status = 'paid';
+
+        $sale->status = 'completed';
+
+
+
+        /*
 
      * Set created_at explicitly because it is not
 
@@ -160,357 +146,246 @@ class SalesDashboardAnalyticsTest extends TestCase
 
      */
 
-    if ($createdAt !== null) {
+        if ($createdAt !== null) {
 
-        $sale->created_at = $createdAt;
+            $sale->created_at = $createdAt;
+        }
 
+
+
+        $sale->save();
+
+
+
+        foreach ($items as $item) {
+
+            SaleItem::create([
+
+                'sale_id' => $sale->id,
+
+                'product_id' => $item['product_id'] ?? null,
+
+                'product_unit_id' => $item['product_unit_id'] ?? null,
+
+                'service_id' => $item['service_id'] ?? null,
+
+                'quantity' => $item['quantity'],
+
+                'unit_price' => $item['unit_price'],
+
+                'unit_cost' => $item['unit_cost'] ?? 0,
+
+                'discount' => 0,
+
+                'total' => $item['quantity'] * $item['unit_price'],
+
+            ]);
+        }
+
+
+
+        return $sale;
     }
 
-
-
-    $sale->save();
-
-
-
-    foreach ($items as $item) {
-
-        SaleItem::create([
-
+    private function createPayment(
+        Business $business,
+        Sale $sale,
+        float $amount,
+        string $status = 'paid',
+        ?string $paidAt = null
+    ): Payment {
+        return Payment::create([
+            'business_id' => $business->id,
             'sale_id' => $sale->id,
+            'amount' => $amount,
+            'method' => 'cash',
+            'status' => $status,
+            'reference' => null,
+            'metadata' => null,
+            'paid_at' => $status === 'paid'
+                ? ($paidAt ?? now())
+                : null,
+        ]);
+    }
 
-            'product_id' => $item['product_id'] ?? null,
+    private function createExpense(
 
-            'product_unit_id' => $item['product_unit_id'] ?? null,
+        Business $business,
 
-            'service_id' => $item['service_id'] ?? null,
+        User $user,
 
-            'quantity' => $item['quantity'],
+        float $amount,
 
-            'unit_price' => $item['unit_price'],
+        ?string $expenseDate = null,
 
-            'unit_cost' => $item['unit_cost'] ?? 0,
+        string $status = 'recorded'
 
-            'discount' => 0,
+    ): Expense {
 
-            'total' => $item['quantity'] * $item['unit_price'],
+        return Expense::create([
+
+            'business_id' => $business->id,
+
+            'category_id' => null,
+
+            'branch_id' => $this->branchFor($business)->id,
+
+            'user_id' => $user->id,
+
+            'amount' => $amount,
+
+            'description' => 'Test expense',
+
+            'expense_date' => $expenseDate ?? now()->toDateString(),
+
+            'payment_method' => 'cash',
+
+            'reference' => null,
+
+            'status' => $status,
 
         ]);
-
     }
 
 
 
-    return $sale;
+   public function test_dashboard_calculates_daily_revenue(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
 
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Coca-Cola',
+        1000
+    );
+
+    $saleOne = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 5,
+            'unit_price' => 1000,
+        ]],
+        now()->setTime(10, 0)
+    );
+
+    $saleTwo = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 3,
+            'unit_price' => 1000,
+        ]],
+        now()->setTime(14, 0)
+    );
+
+    $this->createPayment($business, $saleOne, 5000);
+    $this->createPayment($business, $saleTwo, 3000);
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
+
+    $this->assertEquals(8000, $analytics['daily']['revenue']);
 }
-
-
-
-private function createExpense(
-
-    Business $business,
-
-    User $user,
-
-    float $amount,
-
-    ?string $expenseDate = null,
-
-    string $status = 'recorded'
-
-): Expense {
-
-    return Expense::create([
-
-        'business_id' => $business->id,
-
-        'category_id' => null,
-
-        'branch_id' => $this->branchFor($business)->id,
-
-        'user_id' => $user->id,
-
-        'amount' => $amount,
-
-        'description' => 'Test expense',
-
-        'expense_date' => $expenseDate ?? now()->toDateString(),
-
-        'payment_method' => 'cash',
-
-        'reference' => null,
-
-        'status' => $status,
-
-    ]);
-
-}
-
-
-
-    public function test_dashboard_calculates_daily_revenue(): void
-
-    {
-
-        $business = Business::factory()->create();
-
-        $cashier = User::factory()->create();
-
-
-
-        [$product, $unit] = $this->createProduct(
-
-            $business,
-
-            'Coca-Cola',
-
-            1000
-
-        );
-
-
-
-        $this->createSale(
-
-            $business,
-
-            $cashier,
-
-            [
-
-                [
-
-                    'product_id' => $product->id,
-
-                    'product_unit_id' => $unit->id,
-
-                    'quantity' => 5,
-
-                    'unit_price' => 1000,
-
-                ],
-
-            ],
-
-            now()->setTime(10, 0)
-
-        );
-
-
-
-        $this->createSale(
-
-            $business,
-
-            $cashier,
-
-            [
-
-                [
-
-                    'product_id' => $product->id,
-
-                    'product_unit_id' => $unit->id,
-
-                    'quantity' => 3,
-
-                    'unit_price' => 1000,
-
-                ],
-
-            ],
-
-            now()->setTime(14, 0)
-
-        );
-
-
-
-        $analytics = app(
-
-            \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-        )->dashboard($business, $this->branchFor($business), now());
-
-
-
-        $this->assertEquals(
-
-            8000,
-
-            $analytics['daily']['revenue']
-
-        );
-
-    }
 
 
 
     public function test_dashboard_calculates_weekly_revenue(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
 
-    {
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Peak Milk',
+        1200
+    );
 
-        $business = Business::factory()->create();
+    $saleOne = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 5,
+            'unit_price' => 1200,
+        ]],
+        now()->startOfWeek()->addDay()
+    );
 
-        $cashier = User::factory()->create();
+    $saleTwo = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 2,
+            'unit_price' => 1200,
+        ]],
+        now()->startOfWeek()->addDays(3)
+    );
 
+    $this->createPayment($business, $saleOne, 6000);
+    $this->createPayment($business, $saleTwo, 2400);
 
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
 
-        [$product, $unit] = $this->createProduct(
-
-            $business,
-
-            'Peak Milk',
-
-            1200
-
-        );
-
-
-
-        $this->createSale(
-
-            $business,
-
-            $cashier,
-
-            [
-
-                [
-
-                    'product_id' => $product->id,
-
-                    'product_unit_id' => $unit->id,
-
-                    'quantity' => 5,
-
-                    'unit_price' => 1200,
-
-                ],
-
-            ],
-
-            now()->startOfWeek()->addDay()
-
-        );
-
-
-
-        $this->createSale(
-
-            $business,
-
-            $cashier,
-
-            [
-
-                [
-
-                    'product_id' => $product->id,
-
-                    'product_unit_id' => $unit->id,
-
-                    'quantity' => 2,
-
-                    'unit_price' => 1200,
-
-                ],
-
-            ],
-
-            now()->startOfWeek()->addDays(3)
-
-        );
-
-
-
-        $analytics = app(
-
-            \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-        )->dashboard($business, $this->branchFor($business), now());
-
-
-
-        $this->assertEquals(
-
-            8400,
-
-            $analytics['weekly']['revenue']
-
-        );
-
-    }
+    $this->assertEquals(8400, $analytics['weekly']['revenue']);
+}
 
 
 
     public function test_dashboard_calculates_monthly_revenue(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
 
-    {
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Bread',
+        1500
+    );
 
-        $business = Business::factory()->create();
+    $sale = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 10,
+            'unit_price' => 1500,
+        ]],
+        now()->startOfMonth()->addDay()
+    );
 
-        $cashier = User::factory()->create();
+    $this->createPayment($business, $sale, 15000);
 
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
 
-
-        [$product, $unit] = $this->createProduct(
-
-            $business,
-
-            'Bread',
-
-            1500
-
-        );
-
-
-
-        $this->createSale(
-
-            $business,
-
-            $cashier,
-
-            [
-
-                [
-
-                    'product_id' => $product->id,
-
-                    'product_unit_id' => $unit->id,
-
-                    'quantity' => 10,
-
-                    'unit_price' => 1500,
-
-                ],
-
-            ],
-
-            now()->startOfMonth()->addDay()
-
-        );
-
-
-
-        $analytics = app(
-
-            \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-        )->dashboard($business, $this->branchFor($business), now());
-
-
-
-        $this->assertEquals(
-
-            15000,
-
-            $analytics['monthly']['revenue']
-
-        );
-
-    }
+    $this->assertEquals(15000, $analytics['monthly']['revenue']);
+}
 
 
 
@@ -717,58 +592,57 @@ private function createExpense(
             $top[2]['revenue']
 
         );
-
     }
 
 
 
-   public function test_dashboard_returns_top_items_for_each_period(): void
+    public function test_dashboard_returns_top_items_for_each_period(): void
 
-{
+    {
 
-    $business = Business::factory()->create();
+        $business = Business::factory()->create();
 
-    $cashier = User::factory()->create();
-
-
-
-    [$dailyProduct, $dailyUnit] = $this->createProduct(
-
-        $business,
-
-        'Daily Best',
-
-        2000
-
-    );
+        $cashier = User::factory()->create();
 
 
 
-    [$weeklyProduct, $weeklyUnit] = $this->createProduct(
+        [$dailyProduct, $dailyUnit] = $this->createProduct(
 
-        $business,
+            $business,
 
-        'Weekly Best',
+            'Daily Best',
 
-        3000
+            2000
 
-    );
-
-
-
-    [$monthlyProduct, $monthlyUnit] = $this->createProduct(
-
-        $business,
-
-        'Monthly Best',
-
-        4000
-
-    );
+        );
 
 
 
-    /*
+        [$weeklyProduct, $weeklyUnit] = $this->createProduct(
+
+            $business,
+
+            'Weekly Best',
+
+            3000
+
+        );
+
+
+
+        [$monthlyProduct, $monthlyUnit] = $this->createProduct(
+
+            $business,
+
+            'Monthly Best',
+
+            4000
+
+        );
+
+
+
+        /*
 
      * Use a fixed date.
 
@@ -784,27 +658,27 @@ private function createExpense(
 
      */
 
-    $today = Carbon::create(
+        $today = Carbon::create(
 
-        2026,
+            2026,
 
-        6,
+            6,
 
-        17,
+            17,
 
-        10,
+            10,
 
-        0,
+            0,
 
-        0,
+            0,
 
-        config('app.timezone')
+            config('app.timezone')
 
-    );
+        );
 
 
 
-    /*
+        /*
 
      * ---------------------------------------------------------
 
@@ -818,39 +692,39 @@ private function createExpense(
 
      */
 
-    $dailyDate = $today->copy();
+        $dailyDate = $today->copy();
 
 
 
-    $this->createSale(
+        $this->createSale(
 
-        $business,
+            $business,
 
-        $cashier,
-
-        [
+            $cashier,
 
             [
 
-                'product_id' => $dailyProduct->id,
+                [
 
-                'product_unit_id' => $dailyUnit->id,
+                    'product_id' => $dailyProduct->id,
 
-                'quantity' => 10,
+                    'product_unit_id' => $dailyUnit->id,
 
-                'unit_price' => 2000,
+                    'quantity' => 10,
+
+                    'unit_price' => 2000,
+
+                ],
 
             ],
 
-        ],
+            $dailyDate
 
-        $dailyDate
-
-    );
+        );
 
 
 
-    /*
+        /*
 
      * ---------------------------------------------------------
 
@@ -870,55 +744,55 @@ private function createExpense(
 
      */
 
-    $weeklyDate = Carbon::create(
+        $weeklyDate = Carbon::create(
 
-        2026,
+            2026,
 
-        6,
+            6,
 
-        15,
+            15,
 
-        12,
+            12,
 
-        0,
+            0,
 
-        0,
+            0,
 
-        config('app.timezone')
+            config('app.timezone')
 
-    );
+        );
 
 
 
-    $this->createSale(
+        $this->createSale(
 
-        $business,
+            $business,
 
-        $cashier,
-
-        [
+            $cashier,
 
             [
 
-                'product_id' => $weeklyProduct->id,
+                [
 
-                'product_unit_id' => $weeklyUnit->id,
+                    'product_id' => $weeklyProduct->id,
 
-                'quantity' => 10,
+                    'product_unit_id' => $weeklyUnit->id,
 
-                'unit_price' => 3000,
+                    'quantity' => 10,
+
+                    'unit_price' => 3000,
+
+                ],
 
             ],
 
-        ],
+            $weeklyDate
 
-        $weeklyDate
-
-    );
+        );
 
 
 
-    /*
+        /*
 
      * ---------------------------------------------------------
 
@@ -938,55 +812,55 @@ private function createExpense(
 
      */
 
-    $monthlyDate = Carbon::create(
+        $monthlyDate = Carbon::create(
 
-        2026,
+            2026,
 
-        6,
+            6,
 
-        1,
+            1,
 
-        12,
+            12,
 
-        0,
+            0,
 
-        0,
+            0,
 
-        config('app.timezone')
+            config('app.timezone')
 
-    );
+        );
 
 
 
-    $this->createSale(
+        $this->createSale(
 
-        $business,
+            $business,
 
-        $cashier,
-
-        [
+            $cashier,
 
             [
 
-                'product_id' => $monthlyProduct->id,
+                [
 
-                'product_unit_id' => $monthlyUnit->id,
+                    'product_id' => $monthlyProduct->id,
 
-                'quantity' => 10,
+                    'product_unit_id' => $monthlyUnit->id,
 
-                'unit_price' => 4000,
+                    'quantity' => 10,
+
+                    'unit_price' => 4000,
+
+                ],
 
             ],
 
-        ],
+            $monthlyDate
 
-        $monthlyDate
-
-    );
+        );
 
 
 
-    /*
+        /*
 
      * ---------------------------------------------------------
 
@@ -996,23 +870,23 @@ private function createExpense(
 
      */
 
-    $analytics = app(
+        $analytics = app(
 
-        \App\Domains\Sales\Services\SalesAnalyticsService::class
+            \App\Domains\Sales\Services\SalesAnalyticsService::class
 
-    )->dashboard(
+        )->dashboard(
 
-        $business,
+            $business,
 
-        $this->branchFor($business),
+            $this->branchFor($business),
 
-        $today
+            $today
 
-    );
+        );
 
 
 
-    /*
+        /*
 
      * ---------------------------------------------------------
 
@@ -1022,35 +896,35 @@ private function createExpense(
 
      */
 
-    $this->assertNotEmpty(
+        $this->assertNotEmpty(
 
-        $analytics['daily']['top_items']
+            $analytics['daily']['top_items']
 
-    );
-
-
-
-    $this->assertEquals(
-
-        'Daily Best',
-
-        $analytics['daily']['top_items'][0]['name']
-
-    );
+        );
 
 
 
-    $this->assertEquals(
+        $this->assertEquals(
 
-        'product',
+            'Daily Best',
 
-        $analytics['daily']['top_items'][0]['item_type']
+            $analytics['daily']['top_items'][0]['name']
 
-    );
+        );
 
 
 
-    /*
+        $this->assertEquals(
+
+            'product',
+
+            $analytics['daily']['top_items'][0]['item_type']
+
+        );
+
+
+
+        /*
 
      * ---------------------------------------------------------
 
@@ -1060,35 +934,35 @@ private function createExpense(
 
      */
 
-    $this->assertNotEmpty(
+        $this->assertNotEmpty(
 
-        $analytics['weekly']['top_items']
+            $analytics['weekly']['top_items']
 
-    );
-
-
-
-    $this->assertEquals(
-
-        'Weekly Best',
-
-        $analytics['weekly']['top_items'][0]['name']
-
-    );
+        );
 
 
 
-    $this->assertEquals(
+        $this->assertEquals(
 
-        'product',
+            'Weekly Best',
 
-        $analytics['weekly']['top_items'][0]['item_type']
+            $analytics['weekly']['top_items'][0]['name']
 
-    );
+        );
 
 
 
-    /*
+        $this->assertEquals(
+
+            'product',
+
+            $analytics['weekly']['top_items'][0]['item_type']
+
+        );
+
+
+
+        /*
 
      * ---------------------------------------------------------
 
@@ -1098,109 +972,289 @@ private function createExpense(
 
      */
 
-    $this->assertNotEmpty(
+        $this->assertNotEmpty(
 
-        $analytics['monthly']['top_items']
+            $analytics['monthly']['top_items']
 
-    );
-
-
-
-    $this->assertEquals(
-
-        'Monthly Best',
-
-        $analytics['monthly']['top_items'][0]['name']
-
-    );
+        );
 
 
 
-    $this->assertEquals(
+        $this->assertEquals(
 
-        'product',
+            'Monthly Best',
 
-        $analytics['monthly']['top_items'][0]['item_type']
+            $analytics['monthly']['top_items'][0]['name']
 
-    );
+        );
 
-}
+
+
+        $this->assertEquals(
+
+            'product',
+
+            $analytics['monthly']['top_items'][0]['item_type']
+
+        );
+    }
 
 
 
     public function test_dashboard_is_scoped_to_business(): void
+{
+    $businessA = Business::factory()->create();
+    $businessB = Business::factory()->create();
+
+    $cashierA = User::factory()->create();
+    $cashierB = User::factory()->create();
+
+    [$productA, $unitA] = $this->createProduct(
+        $businessA,
+        'Product A',
+        1000
+    );
+
+    [$productB, $unitB] = $this->createProduct(
+        $businessB,
+        'Product B',
+        1000
+    );
+
+    $saleA = $this->createSale(
+        $businessA,
+        $cashierA,
+        [[
+            'product_id' => $productA->id,
+            'product_unit_id' => $unitA->id,
+            'quantity' => 5,
+            'unit_price' => 1000,
+        ]],
+        now()
+    );
+
+    $saleB = $this->createSale(
+        $businessB,
+        $cashierB,
+        [[
+            'product_id' => $productB->id,
+            'product_unit_id' => $unitB->id,
+            'quantity' => 100,
+            'unit_price' => 1000,
+        ]],
+        now()
+    );
+
+    $this->createPayment($businessA, $saleA, 5000);
+    $this->createPayment($businessB, $saleB, 100000);
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $businessA,
+        $this->branchFor($businessA),
+        now()
+    );
+
+    $this->assertEquals(5000, $analytics['daily']['revenue']);
+}
+
+
+
+    public function test_dashboard_calculates_daily_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Product',
+        10000
+    );
+
+    $sale = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 10000,
+        ]],
+        now()
+    );
+
+    $this->createPayment($business, $sale, 10000);
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2500,
+        now()->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
+
+    $this->assertEquals(10000, $analytics['daily']['revenue']);
+    $this->assertEquals(2500, $analytics['daily']['expenses']);
+    $this->assertEquals(7500, $analytics['daily']['net_result']);
+}
+
+
+
+    public function test_dashboard_calculates_weekly_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Product',
+        12000
+    );
+
+    $sale = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 12000,
+        ]],
+        now()->startOfWeek()->addDay()
+    );
+
+    $this->createPayment($business, $sale, 12000);
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        3000,
+        now()->toDateString()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2000,
+        now()->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
+
+    $this->assertEquals(12000, $analytics['weekly']['revenue']);
+    $this->assertEquals(5000, $analytics['weekly']['expenses']);
+    $this->assertEquals(7000, $analytics['weekly']['net_result']);
+}
+
+
+
+    public function test_dashboard_calculates_monthly_expenses_and_net_result(): void
+{
+    $business = Business::factory()->create();
+    $cashier = User::factory()->create();
+
+    [$product, $unit] = $this->createProduct(
+        $business,
+        'Product',
+        15000
+    );
+
+    $sale = $this->createSale(
+        $business,
+        $cashier,
+        [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 15000,
+        ]],
+        now()->startOfMonth()->addDay()
+    );
+
+    $this->createPayment($business, $sale, 15000);
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        8000,
+        now()->toDateString()
+    );
+
+    $this->createExpense(
+        $business,
+        $cashier,
+        2000,
+        now()->toDateString()
+    );
+
+    $analytics = app(
+        \App\Domains\Sales\Services\SalesAnalyticsService::class
+    )->dashboard(
+        $business,
+        $this->branchFor($business),
+        now()
+    );
+
+    $this->assertEquals(15000, $analytics['monthly']['revenue']);
+    $this->assertEquals(10000, $analytics['monthly']['expenses']);
+    $this->assertEquals(5000, $analytics['monthly']['net_result']);
+}
+
+
+
+    public function test_dashboard_excludes_voided_expenses(): void
 
     {
 
-        $businessA = Business::factory()->create();
+        $business = Business::factory()->create();
 
-        $businessB = Business::factory()->create();
-
-
-
-        $cashierA = User::factory()->create();
-
-        $cashierB = User::factory()->create();
+        $cashier = User::factory()->create();
 
 
 
-        [$productA, $unitA] = $this->createProduct(
+        $this->createExpense(
 
-            $businessA,
+            $business,
 
-            'Coca-Cola',
+            $cashier,
 
-            1000
+            5000,
+
+            now()->toDateString(),
+
+            'recorded'
 
         );
 
 
 
-        [$productB, $unitB] = $this->createProduct(
+        $this->createExpense(
 
-            $businessB,
+            $business,
 
-            'Coca-Cola',
+            $cashier,
 
-            1000
+            3000,
+
+            now()->toDateString(),
+
+            'voided'
 
         );
-
-
-
-        $this->createSale($businessA, $cashierA, [
-
-            [
-
-                'product_id' => $productA->id,
-
-                'product_unit_id' => $unitA->id,
-
-                'quantity' => 5,
-
-                'unit_price' => 1000,
-
-            ],
-
-        ]);
-
-
-
-        $this->createSale($businessB, $cashierB, [
-
-            [
-
-                'product_id' => $productB->id,
-
-                'product_unit_id' => $unitB->id,
-
-                'quantity' => 100,
-
-                'unit_price' => 1000,
-
-            ],
-
-        ]);
 
 
 
@@ -1208,7 +1262,7 @@ private function createExpense(
 
             \App\Domains\Sales\Services\SalesAnalyticsService::class
 
-        )->dashboard($businessA, $this->branchFor($businessA), now());
+        )->dashboard($business, $this->branchFor($business), now());
 
 
 
@@ -1216,7 +1270,7 @@ private function createExpense(
 
             5000,
 
-            $analytics['daily']['revenue']
+            $analytics['daily']['expenses']
 
         );
 
@@ -1224,434 +1278,124 @@ private function createExpense(
 
         $this->assertEquals(
 
-            'Coca-Cola',
+            -5000,
 
-            $analytics['top_items'][0]['name']
-
-        );
-
-
-
-        $this->assertEquals(
-
-            5000,
-
-            $analytics['top_items'][0]['revenue']
+            $analytics['daily']['net_result']
 
         );
-
     }
 
 
-
-    public function test_dashboard_calculates_daily_expenses_and_net_result(): void
-
-{
-
-    $business = Business::factory()->create();
-
-    $cashier = User::factory()->create();
-
-
-
-    [$product, $unit] = $this->createProduct(
-
-        $business,
-
-        'Coca-Cola',
-
-        1000
-
-    );
-
-
-
-    $this->createSale(
-
-        $business,
-
-        $cashier,
-
-        [
-
-            [
-
-                'product_id' => $product->id,
-
-                'product_unit_id' => $unit->id,
-
-                'quantity' => 10,
-
-                'unit_price' => 1000,
-
-            ],
-
-        ],
-
-        now()->setTime(10, 0)
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        2500,
-
-        now()->toDateString()
-
-    );
-
-
-
-    $analytics = app(
-
-        \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-    )->dashboard($business, $this->branchFor($business), now());
-
-
-
-    $this->assertEquals(
-
-        10000,
-
-        $analytics['daily']['revenue']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        2500,
-
-        $analytics['daily']['expenses']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        7500,
-
-        $analytics['daily']['net_result']
-
-    );
-
-}
-
-
-
-public function test_dashboard_calculates_weekly_expenses_and_net_result(): void
-
-{
-
-    $business = Business::factory()->create();
-
-    $cashier = User::factory()->create();
-
-
-
-    [$product, $unit] = $this->createProduct(
-
-        $business,
-
-        'Peak Milk',
-
-        1200
-
-    );
-
-
-
-    $this->createSale(
-
-        $business,
-
-        $cashier,
-
-        [
-
-            [
-
-                'product_id' => $product->id,
-
-                'product_unit_id' => $unit->id,
-
-                'quantity' => 10,
-
-                'unit_price' => 1200,
-
-            ],
-
-        ],
-
-        now()->startOfWeek()->addDay()
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        3000,
-
-        now()->startOfWeek()->addDay()->toDateString()
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        2000,
-
-        now()->startOfWeek()->addDays(3)->toDateString()
-
-    );
-
-
-
-    $analytics = app(
-
-        \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-    )->dashboard($business, $this->branchFor($business), now());
-
-
-
-    $this->assertEquals(
-
-        12000,
-
-        $analytics['weekly']['revenue']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        5000,
-
-        $analytics['weekly']['expenses']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        7000,
-
-        $analytics['weekly']['net_result']
-
-    );
-
-}
-
-
-
-public function test_dashboard_calculates_monthly_expenses_and_net_result(): void
-
-{
-
-    $business = Business::factory()->create();
-
-    $cashier = User::factory()->create();
-
-
-
-    [$product, $unit] = $this->createProduct(
-
-        $business,
-
-        'Bread',
-
-        1500
-
-    );
-
-
-
-    $this->createSale(
-
-        $business,
-
-        $cashier,
-
-        [
-
-            [
-
-                'product_id' => $product->id,
-
-                'product_unit_id' => $unit->id,
-
-                'quantity' => 10,
-
-                'unit_price' => 1500,
-
-            ],
-
-        ],
-
-        now()->startOfMonth()->addDay()
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        8000,
-
-        now()->startOfMonth()->addDay()->toDateString()
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        2000,
-
-        now()->startOfMonth()->addDays(10)->toDateString()
-
-    );
-
-
-
-    $analytics = app(
-
-        \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-    )->dashboard($business, $this->branchFor($business), now());
-
-
-
-    $this->assertEquals(
-
-        15000,
-
-        $analytics['monthly']['revenue']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        10000,
-
-        $analytics['monthly']['expenses']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        5000,
-
-        $analytics['monthly']['net_result']
-
-    );
-
-}
-
-
-
-public function test_dashboard_excludes_voided_expenses(): void
-
-{
-
-    $business = Business::factory()->create();
-
-    $cashier = User::factory()->create();
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        5000,
-
-        now()->toDateString(),
-
-        'recorded'
-
-    );
-
-
-
-    $this->createExpense(
-
-        $business,
-
-        $cashier,
-
-        3000,
-
-        now()->toDateString(),
-
-        'voided'
-
-    );
-
-
-
-    $analytics = app(
-
-        \App\Domains\Sales\Services\SalesAnalyticsService::class
-
-    )->dashboard($business, $this->branchFor($business), now());
-
-
-
-    $this->assertEquals(
-
-        5000,
-
-        $analytics['daily']['expenses']
-
-    );
-
-
-
-    $this->assertEquals(
-
-        -5000,
-
-        $analytics['daily']['net_result']
-
-    );
-
-}
-
+    public function test_dashboard_counts_only_collected_amount_for_credit_sales(): void
+    {
+        $business = Business::factory()->create();
+        $cashier = User::factory()->create();
+
+        [$product, $unit] = $this->createProduct(
+            $business,
+            'Credit Sale Product',
+            20500
+        );
+
+        // Unpaid credit sale: ₦20,500 owed, nothing collected.
+        $unpaidSale = $this->createSale($business, $cashier, [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 20500,
+        ]]);
+
+        $unpaidSale->update([
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+        ]);
+
+        // Partially paid credit sale: ₦8,000 collected.
+        $partialSale = $this->createSale($business, $cashier, [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 20500,
+        ]]);
+
+        $partialSale->update([
+            'payment_method' => 'credit',
+            'payment_status' => 'partially_paid',
+        ]);
+
+        $this->createPayment($business, $partialSale, 8000);
+
+        // Fully paid credit sale: ₦20,500 collected.
+        $paidSale = $this->createSale($business, $cashier, [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 20500,
+        ]]);
+
+        $paidSale->update([
+            'payment_method' => 'credit',
+            'payment_status' => 'paid',
+        ]);
+
+        $this->createPayment($business, $paidSale, 20500);
+
+        // Ordinary cash sale: ₦5,000 collected.
+        $cashSale = $this->createSale($business, $cashier, [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 5000,
+        ]]);
+
+        $this->createPayment($business, $cashSale, 5000);
+
+        $analytics = app(
+            \App\Domains\Sales\Services\SalesAnalyticsService::class
+        )->dashboard($business, $this->branchFor($business), now());
+
+        // ₦0 + ₦8,000 + ₦20,500 + ₦5,000 = ₦33,500.
+        $this->assertEquals(33500, $analytics['daily']['revenue']);
+        $this->assertEquals(33500, $analytics['weekly']['revenue']);
+        $this->assertEquals(33500, $analytics['monthly']['revenue']);
+
+        // Count sales, not the number of payment records.
+        $this->assertEquals(4, $analytics['daily']['transactions']);
+    }
+
+    public function test_dashboard_excludes_pending_failed_refunded_and_voided_payments(): void
+    {
+        $business = Business::factory()->create();
+        $cashier = User::factory()->create();
+
+        [$product, $unit] = $this->createProduct(
+            $business,
+            'Payment Status Product',
+            10000
+        );
+
+        $sale = $this->createSale($business, $cashier, [[
+            'product_id' => $product->id,
+            'product_unit_id' => $unit->id,
+            'quantity' => 1,
+            'unit_price' => 10000,
+        ]]);
+
+        $sale->update([
+            'payment_method' => 'credit',
+            'payment_status' => 'unpaid',
+        ]);
+
+        $this->createPayment($business, $sale, 2000, 'pending');
+        $this->createPayment($business, $sale, 3000, 'failed');
+        $this->createPayment($business, $sale, 1000, 'refunded');
+        $this->createPayment($business, $sale, 1000, 'voided');
+
+        $analytics = app(
+            \App\Domains\Sales\Services\SalesAnalyticsService::class
+        )->dashboard($business, $this->branchFor($business), now());
+
+        $this->assertEquals(0, $analytics['daily']['revenue']);
+        $this->assertEquals(1, $analytics['daily']['transactions']);
+    }
 }

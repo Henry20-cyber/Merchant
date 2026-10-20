@@ -97,7 +97,7 @@ class SubscriptionPlanSeederTest extends TestCase
         expect($plan->customer_limit)->toBe(100);
         expect($plan->user_limit)->toBe(5);
         expect($plan->branch_limit)->toBe(3);
-        expect($plan->transaction_daily_limit)->toBe(50);
+        expect($plan->transaction_daily_limit)->toBe(40);
         expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
@@ -115,7 +115,7 @@ class SubscriptionPlanSeederTest extends TestCase
         expect($plan->customer_limit)->toBe(100);
         expect($plan->user_limit)->toBe(5);
         expect($plan->branch_limit)->toBe(3);
-        expect($plan->transaction_daily_limit)->toBe(50);
+        expect($plan->transaction_daily_limit)->toBe(40);
         expect($plan->transaction_monthly_limit)->toBe(900);
     }
 
@@ -133,7 +133,7 @@ class SubscriptionPlanSeederTest extends TestCase
         expect($plan->customer_limit)->toBeNull();
         expect($plan->user_limit)->toBe(20);
         expect($plan->branch_limit)->toBe(10);
-        expect($plan->transaction_daily_limit)->toBe(30);
+        expect($plan->transaction_daily_limit)->toBe(55);
         expect($plan->transaction_monthly_limit)->toBe(14000);
     }
 
@@ -151,7 +151,7 @@ class SubscriptionPlanSeederTest extends TestCase
         expect($plan->customer_limit)->toBeNull();
         expect($plan->user_limit)->toBe(20);
         expect($plan->branch_limit)->toBe(10);
-        expect($plan->transaction_daily_limit)->toBe(30);
+        expect($plan->transaction_daily_limit)->toBe(55);
         expect($plan->transaction_monthly_limit)->toBe(14000);
     }
 

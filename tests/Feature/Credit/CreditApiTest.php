@@ -5,6 +5,7 @@ namespace Tests\Feature\Credit;
 use App\Domains\Credit\Models\Credit;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Identity\Services\RoleService;
+use App\Domains\Credit\Services\CreditService;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
@@ -207,4 +208,72 @@ class CreditApiTest extends TestCase
 
         $response->assertNotFound();
     }
+
+
+public function test_credit_repayments_sync_sale_and_credit_payment_statuses(): void
+{
+    [$business, $owner, $branchA] =
+        $this->createBusinessWithOwner();
+
+    $credit = $this->createCredit(
+        $business,
+        $branchA,
+        $owner,
+        'Repayment Test Customer'
+    );
+
+    $service = app(CreditService::class);
+
+    // Record a partial repayment of ₦4,000.
+    $service->recordPayment(
+        $business,
+        $branchA,
+        $credit,
+        [
+            'amount' => 4000,
+            'method' => 'cash',
+        ]
+    );
+
+    $credit->refresh();
+    $sale = $credit->sale()->firstOrFail();
+
+    $this->assertSame(
+        'partially_paid',
+        $sale->payment_status,
+        'A partially paid credit sale should have partially_paid status.'
+    );
+
+    $this->assertSame(
+        'partial',
+        $credit->status,
+        'A partially repaid credit should have partial status.'
+    );
+
+    // Record the remaining ₦6,000.
+    $service->recordPayment(
+        $business,
+        $branchA,
+        $credit,
+        [
+            'amount' => 6000,
+            'method' => 'cash',
+        ]
+    );
+
+    $credit->refresh();
+    $sale->refresh();
+
+    $this->assertSame(
+        'paid',
+        $sale->payment_status,
+        'A fully paid credit sale should have paid status.'
+    );
+
+    $this->assertSame(
+        'settled',
+        $credit->status,
+        'A fully repaid credit should have settled status.'
+    );
+}
 }

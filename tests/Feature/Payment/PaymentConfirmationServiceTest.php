@@ -5,6 +5,8 @@ namespace Tests\Feature\Payment;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
+use App\Domains\Sales\Models\Sale;
+use App\Models\User;
 use App\Domains\Payment\Services\PaymentConfirmationService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
@@ -151,6 +153,62 @@ class PaymentConfirmationServiceTest extends TestCase
             'raw' => [],
         ];
     }
+
+
+public function test_confirmed_sale_payment_updates_sale_payment_status(): void
+{
+    $business = $this->createBusiness();
+    $cashier = User::factory()->create();
+
+    $sale = Sale::create([
+        'business_id' => $business->id,
+        'cashier_id' => $cashier->id,
+        'customer_id' => null,
+        'subtotal' => 10000,
+        'discount' => 0,
+        'vat_amount' => 0,
+        'total' => 10000,
+        'payment_method' => 'bank_transfer',
+        'payment_status' => 'unpaid',
+        'status' => 'completed',
+    ]);
+
+    $payment = Payment::factory()->create([
+        'business_id' => $business->id,
+        'subscription_id' => null,
+        'sale_id' => $sale->id,
+        'amount' => '10000.00',
+        'method' => 'bank_transfer',
+        'status' => 'pending',
+        'reference' => 'MERCHANTOS-SALE-CONFIRM-001',
+        'metadata' => ['type' => 'sale'],
+    ]);
+
+    $this->gateway
+        ->shouldReceive('verify')
+        ->once()
+        ->with($payment->reference)
+        ->andReturn([
+            'success' => true,
+            'status' => 'success',
+            'reference' => $payment->reference,
+            'amount' => 1_000_000,
+            'currency' => 'NGN',
+            'authorization_code' => null,
+            'customer_code' => null,
+            'raw' => [],
+        ]);
+
+    $confirmedPayment = app(PaymentConfirmationService::class)
+        ->confirm($payment->reference);
+
+    expect($confirmedPayment->fresh()->status)
+        ->toBe('paid');
+
+    expect($sale->fresh()->payment_status)
+        ->toBe('paid');
+}
+
 
     /**
      * Successful subscription payment is marked paid.

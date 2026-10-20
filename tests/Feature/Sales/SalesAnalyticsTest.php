@@ -14,6 +14,8 @@ use App\Domains\Organization\Models\BusinessUser;
 
 use App\Domains\Product\Models\Product;
 
+use App\Domains\Payment\Models\Payment;
+
 use App\Domains\Product\Models\ProductUnit;
 
 use App\Domains\Sales\Models\Sale;
@@ -2560,23 +2562,11 @@ class SalesAnalyticsTest extends TestCase
 
     {
 
-        $this->createSale(
+        $saleA = $this->createSale($this->branchA, 10000);
+        $saleB = $this->createSale($this->branchB, 50000);
 
-            $this->branchA,
-
-            10000
-
-        );
-
-
-
-        $this->createSale(
-
-            $this->branchB,
-
-            50000
-
-        );
+        $this->createPaidPayment($saleA, 10000);
+        $this->createPaidPayment($saleB, 50000);
 
 
 
@@ -2635,23 +2625,11 @@ class SalesAnalyticsTest extends TestCase
 
     {
 
-        $this->createSale(
+        $saleA = $this->createSale($this->branchA, 10000);
+        $saleB = $this->createSale($this->branchB, 50000);
 
-            $this->branchA,
-
-            10000
-
-        );
-
-
-
-        $this->createSale(
-
-            $this->branchB,
-
-            50000
-
-        );
+        $this->createPaidPayment($saleA, 10000);
+        $this->createPaidPayment($saleB, 50000);
 
 
 
@@ -2744,23 +2722,11 @@ class SalesAnalyticsTest extends TestCase
 
     {
 
-        $branchASale = $this->createSale(
+        $branchASale = $this->createSale($this->branchA, 15000);
+        $branchBSale = $this->createSale($this->branchB, 75000);
 
-            $this->branchA,
-
-            15000
-
-        );
-
-
-
-        $this->createSale(
-
-            $this->branchB,
-
-            75000
-
-        );
+        $this->createPaidPayment($branchASale, 15000);
+        $this->createPaidPayment($branchBSale, 75000);
 
 
 
@@ -2817,98 +2783,75 @@ class SalesAnalyticsTest extends TestCase
 
 
 
-   public function test_advanced_analytics_only_reports_current_branch(): void
-{
-    $this->createSale(
-        $this->branchA,
-        10000
-    );
+    public function test_advanced_analytics_only_reports_current_branch(): void
+    {
+        $saleA = $this->createSale($this->branchA, 10000);
+        $saleB = $this->createSale($this->branchB, 50000);
 
-    $this->createSale(
-        $this->branchB,
-        50000
-    );
+        $this->createPaidPayment($saleA, 10000);
+        $this->createPaidPayment($saleB, 50000);
 
-    $response = $this
-        ->actingAs($this->owner)
-        ->withSession([
-            'current_business_id' => $this->business->id,
-            'current_branch_id' => $this->branchA->id,
-        ])
-        ->getJson(
-            '/api/businesses/current/sales/advanced-analytics'
-        );
+        $response = $this
+            ->actingAs($this->owner)
+            ->withSession([
+                'current_business_id' => $this->business->id,
+                'current_branch_id' => $this->branchA->id,
+            ])
+            ->getJson('/api/businesses/current/sales/advanced-analytics');
 
-    $response
-        ->assertOk()
-        ->assertJsonPath(
-            'success',
-            true
-        )
-        ->assertJsonPath(
-            'data.revenue',
-            10000
-        )
-        ->assertJsonPath(
-            'data.transactions',
-            1
-        );
-}
+        $response
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.revenue', 10000)
+            ->assertJsonPath('data.transactions', 1);
+    }
 
-public function test_switching_branch_changes_advanced_analytics(): void
-{
-    $this->createSale(
-        $this->branchA,
-        10000
-    );
+    public function test_switching_branch_changes_advanced_analytics(): void
+    {
+        $saleA = $this->createSale($this->branchA, 10000);
+        $saleB = $this->createSale($this->branchB, 50000);
 
-    $this->createSale(
-        $this->branchB,
-        50000
-    );
+        $this->createPaidPayment($saleA, 10000);
+        $this->createPaidPayment($saleB, 50000);
 
-    $branchAResponse = $this
-        ->actingAs($this->owner)
-        ->withSession([
-            'current_business_id' => $this->business->id,
-            'current_branch_id' => $this->branchA->id,
-        ])
-        ->getJson(
-            '/api/businesses/current/sales/advanced-analytics'
-        );
+        $branchAResponse = $this
+            ->actingAs($this->owner)
+            ->withSession([
+                'current_business_id' => $this->business->id,
+                'current_branch_id' => $this->branchA->id,
+            ])
+            ->getJson('/api/businesses/current/sales/advanced-analytics');
 
-    $branchAResponse
-        ->assertOk()
-        ->assertJsonPath(
-            'data.revenue',
-            10000
-        )
-        ->assertJsonPath(
-            'data.transactions',
-            1
-        );
+        $branchAResponse
+            ->assertOk()
+            ->assertJsonPath('data.revenue', 10000)
+            ->assertJsonPath('data.transactions', 1);
 
-    $branchBResponse = $this
-        ->actingAs($this->owner)
-        ->withSession([
-            'current_business_id' => $this->business->id,
-            'current_branch_id' => $this->branchB->id,
-        ])
-        ->getJson(
-            '/api/businesses/current/sales/advanced-analytics'
-        );
+        $branchBResponse = $this
+            ->actingAs($this->owner)
+            ->withSession([
+                'current_business_id' => $this->business->id,
+                'current_branch_id' => $this->branchB->id,
+            ])
+            ->getJson('/api/businesses/current/sales/advanced-analytics');
 
-    $branchBResponse
-        ->assertOk()
-        ->assertJsonPath(
-            'data.revenue',
-            50000
-        )
-        ->assertJsonPath(
-            'data.transactions',
-            1
-        );
-}
+        $branchBResponse
+            ->assertOk()
+            ->assertJsonPath('data.revenue', 50000)
+            ->assertJsonPath('data.transactions', 1);
+    }
+
+    private function createPaidPayment(Sale $sale, float $amount): Payment
+    {
+        return Payment::create([
+            'business_id' => $this->business->id,
+            'sale_id' => $sale->id,
+            'amount' => $amount,
+            'method' => 'cash',
+            'status' => 'paid',
+            'paid_at' => now(),
+        ]);
+    }
 
     private function createRoleWithPermissions(
         string $roleName,
