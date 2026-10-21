@@ -7,6 +7,8 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
+use App\Domains\Product\Models\ProductBarcode;
+use App\Domains\Product\Models\ProductBarcodeBranchMapping;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -39,6 +41,22 @@ class StockMovementTest extends TestCase
 
         return [$product, $unit];
     }
+
+    private function createBarcode(
+    Business $business,
+    Product $product,
+    ProductUnit $unit,
+    string $value
+): ProductBarcode {
+    return ProductBarcode::create([
+        'business_id' => $business->id,
+        'product_id' => $product->id,
+        'product_unit_id' => $unit->id,
+        'barcode' => $value,
+        'type' => 'manufacturer',
+        'is_primary' => true,
+    ]);
+}
 
     public function test_stock_can_be_received(): void
     {
@@ -298,4 +316,147 @@ class StockMovementTest extends TestCase
             10
         );
     }
+
+    public function test_receiving_stock_maps_existing_barcode_to_branch(): void
+{
+    $business = Business::factory()->create();
+
+    [$product, $unit] = $this->createProductWithBaseUnit($business);
+    $branch = $this->branchFor($business);
+
+    $barcode = $this->createBarcode(
+        $business,
+        $product,
+        $unit,
+        'TEST-RECEIVE-' . $product->id
+    );
+
+    app(StockService::class)->receive(
+        $business,
+        $branch,
+        $product,
+        $unit,
+        10
+    );
+
+    $this->assertDatabaseHas('product_barcode_branch_mappings', [
+        'business_id' => $business->id,
+        'branch_id' => $branch->id,
+        'product_barcode_id' => $barcode->id,
+    ]);
+}
+
+public function test_transferring_stock_maps_barcode_to_destination_branch(): void
+{
+    $business = Business::factory()->create();
+
+    [$product, $unit] = $this->createProductWithBaseUnit($business);
+
+    $source = $this->branchFor($business);
+
+    $destination = Branch::create([
+        'business_id' => $business->id,
+        'name' => 'Destination Branch',
+        'code' => 'DEST-' . $business->id,
+        'city' => 'Port Harcourt',
+        'state' => 'Rivers',
+        'country' => 'Nigeria',
+        'is_head_office' => false,
+    ]);
+
+    $barcode = $this->createBarcode(
+        $business,
+        $product,
+        $unit,
+        'TEST-TRANSFER-' . $product->id
+    );
+
+    $service = app(StockService::class);
+
+    $service->receive(
+        $business,
+        $source,
+        $product,
+        $unit,
+        20
+    );
+
+    $service->transfer(
+        $business,
+        $source,
+        $destination,
+        $product,
+        $unit,
+        5
+    );
+
+    $this->assertDatabaseHas('product_barcode_branch_mappings', [
+        'business_id' => $business->id,
+        'branch_id' => $destination->id,
+        'product_barcode_id' => $barcode->id,
+    ]);
+}
+
+public function test_repeated_stock_receipts_do_not_duplicate_barcode_mappings(): void
+{
+    $business = Business::factory()->create();
+
+    [$product, $unit] = $this->createProductWithBaseUnit($business);
+    $branch = $this->branchFor($business);
+
+    $this->createBarcode(
+        $business,
+        $product,
+        $unit,
+        'TEST-IDEMPOTENT-' . $product->id
+    );
+
+    $service = app(StockService::class);
+
+    $service->receive($business, $branch, $product, $unit, 5);
+    $service->receive($business, $branch, $product, $unit, 5);
+
+    $this->assertDatabaseCount('product_barcode_branch_mappings', 1);
+}
+
+public function test_backfill_maps_existing_barcodes_to_branches_with_stock(): void
+{
+    $business = Business::factory()->create();
+
+    [$product, $unit] = $this->createProductWithBaseUnit($business);
+    $branch = $this->branchFor($business);
+
+    // Stock exists before the barcode is registered.
+    app(StockService::class)->receive(
+        $business,
+        $branch,
+        $product,
+        $unit,
+        10
+    );
+
+    $barcode = $this->createBarcode(
+        $business,
+        $product,
+        $unit,
+        'TEST-BACKFILL-' . $product->id
+    );
+
+    // Simulate an existing barcode without a branch mapping.
+    \Illuminate\Support\Facades\DB::table(
+        'product_barcode_branch_mappings'
+    )->where('product_barcode_id', $barcode->id)->delete();
+
+    $count = app(
+        \App\Domains\Product\Services\ProductBarcodeBranchMappingService::class
+    )->backfillExistingMappings();
+
+    $this->assertGreaterThanOrEqual(1, $count);
+
+    $this->assertDatabaseHas('product_barcode_branch_mappings', [
+        'business_id' => $business->id,
+        'branch_id' => $branch->id,
+        'product_barcode_id' => $barcode->id,
+    ]);
+}
 }

@@ -6,6 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Product\Services\ProductService;
+use App\Domains\Product\Models\ProductBarcode;
+use App\Domains\Product\Services\ProductBarcodeRegistrationService;
+use App\Domains\Product\Models\ProductBarcodeBranchMapping;
+use Illuminate\Validation\ValidationException;
 use App\Domains\Catalog\Models\Category;
 use Illuminate\Validation\Rule;
 use Illuminate\Http\JsonResponse;
@@ -14,7 +18,8 @@ use Illuminate\Http\Request;
 class ProductController extends Controller
 {
     public function __construct(
-        private ProductService $productService
+        private ProductService $productService,
+        private ProductBarcodeRegistrationService $barcodeRegistrationService,
     ) {}
 
 
@@ -537,4 +542,140 @@ class ProductController extends Controller
             'message' => 'Product unit deleted successfully.',
         ]);
     }
+
+    /**
+     * Register a barcode for a specific sellable product unit.
+     */
+    public function storeBarcode(
+        Request $request,
+        Product $product
+    ): JsonResponse {
+        $business = $this->currentBusiness($request);
+
+        $this->ensureProductBelongsToBusiness(
+            $product,
+            $business
+        );
+
+        $validated = $request->validate([
+            'product_unit_id' => [
+                'required',
+                'uuid',
+            ],
+            'barcode' => [
+                'required',
+                'string',
+                'max:255',
+            ],
+            'type' => [
+                'sometimes',
+                'required',
+                'string',
+                'max:50',
+            ],
+            'is_primary' => [
+                'sometimes',
+                'boolean',
+            ],
+        ]);
+
+        $unit = ProductUnit::query()
+            ->where('business_id', $business->id)
+            ->where('product_id', $product->id)
+            ->whereKey($validated['product_unit_id'])
+            ->firstOrFail();
+
+        $barcode = $this->barcodeRegistrationService->register(
+            $business,
+            $product,
+            $unit,
+            $validated['barcode'],
+            $validated['type'] ?? 'manufacturer',
+            $validated['is_primary'] ?? false,
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Barcode registered successfully.',
+            'barcode' => $barcode,
+        ], 201);
+    }
+
+    /**
+ * Resolve a barcode within the active business and branch.
+ */
+public function lookupBarcode(Request $request): JsonResponse
+{
+    $business = $this->currentBusiness($request);
+    $branch = $this->currentBranch($request);
+
+    abort_unless(
+        $business->barcode_enabled,
+        403,
+        'Barcode functionality is not enabled for this business.'
+    );
+
+    abort_unless(
+        $branch->business_id === $business->id,
+        403,
+        'The active branch does not belong to this business.'
+    );
+
+    $validated = $request->validate([
+        'barcode' => ['required', 'string', 'max:255'],
+    ]);
+
+    $barcodeValue = trim($validated['barcode']);
+
+    $mapping = ProductBarcodeBranchMapping::query()
+        ->where('business_id', $business->id)
+        ->where('branch_id', $branch->id)
+        ->whereHas('productBarcode', function ($query) use (
+            $business,
+            $barcodeValue
+        ) {
+            $query
+                ->where('business_id', $business->id)
+                ->where('barcode', $barcodeValue)
+                ->whereNotNull('product_unit_id');
+        })
+        ->with('productBarcode')
+        ->first();
+
+    if (! $mapping) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Barcode not found at this branch.',
+        ], 404);
+    }
+
+    $barcode = $mapping->productBarcode;
+
+    $product = Product::query()
+        ->where('business_id', $business->id)
+        ->whereKey($barcode->product_id)
+        ->first();
+
+    $unit = ProductUnit::query()
+        ->where('business_id', $business->id)
+        ->where('product_id', $barcode->product_id)
+        ->whereKey($barcode->product_unit_id)
+        ->where('is_sellable', true)
+        ->whereNull('deleted_at')
+        ->first();
+
+    if (! $product || ! $unit) {
+        return response()->json([
+            'success' => false,
+            'message' => 'Barcode not found at this branch.',
+        ], 404);
+    }
+
+    return response()->json([
+        'success' => true,
+        'product' => $product,
+        'unit' => $unit,
+        'barcode' => $barcode,
+    ]);
+}
 }

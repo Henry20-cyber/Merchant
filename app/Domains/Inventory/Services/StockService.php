@@ -8,6 +8,7 @@ use App\Domains\Organization\Models\Branch;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
+use App\Domains\Product\Services\ProductBarcodeBranchMappingService;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -16,7 +17,8 @@ use Illuminate\Validation\ValidationException;
 class StockService
 {
     public function __construct(
-        private readonly InventoryQuantityConverter $quantityConverter
+        private readonly InventoryQuantityConverter $quantityConverter,
+        private readonly ProductBarcodeBranchMappingService $barcodeMappingService,
     ) {}
 
     public function createStock(
@@ -51,11 +53,27 @@ class StockService
     ): Stock {
         $this->assertPositiveQuantity($quantity);
 
-        return DB::transaction(function () use ($business, $branch, $product, $unit, $quantity, $note, $user) {
+        return DB::transaction(function () use (
+            $business,
+            $branch,
+            $product,
+            $unit,
+            $quantity,
+            $note,
+            $user
+        ) {
             $this->assertOwnership($business, $branch, $product, $unit);
 
-            $baseQuantity = $this->quantityConverter->toBaseUnits($quantity, $unit);
-            $stock = $this->lockOrCreateStock($business, $branch, $product);
+            $baseQuantity = $this->quantityConverter->toBaseUnits(
+                $quantity,
+                $unit
+            );
+
+            $stock = $this->lockOrCreateStock(
+                $business,
+                $branch,
+                $product
+            );
 
             $before = (float) $stock->quantity;
             $after = $before + $baseQuantity;
@@ -63,9 +81,24 @@ class StockService
             $stock->update(['quantity' => $after]);
 
             $this->createMovement(
-                $business, $branch, $product, $unit, $stock,
-                'receive', $quantity, $baseQuantity,
-                $before, $after, $note, $user
+                $business,
+                $branch,
+                $product,
+                $unit,
+                $stock,
+                'receive',
+                $quantity,
+                $baseQuantity,
+                $before,
+                $after,
+                $note,
+                $user
+            );
+
+            $this->barcodeMappingService->syncProductBarcodesToBranch(
+                (string) $business->id,
+                (string) $product->id,
+                (string) $branch->id,
             );
 
             return $stock->fresh();
@@ -83,11 +116,27 @@ class StockService
     ): Stock {
         $this->assertPositiveQuantity($quantity);
 
-        return DB::transaction(function () use ($business, $branch, $product, $unit, $quantity, $note, $user) {
+        return DB::transaction(function () use (
+            $business,
+            $branch,
+            $product,
+            $unit,
+            $quantity,
+            $note,
+            $user
+        ) {
             $this->assertOwnership($business, $branch, $product, $unit);
 
-            $baseQuantity = $this->quantityConverter->toBaseUnits($quantity, $unit);
-            $stock = $this->lockOrCreateStock($business, $branch, $product);
+            $baseQuantity = $this->quantityConverter->toBaseUnits(
+                $quantity,
+                $unit
+            );
+
+            $stock = $this->lockOrCreateStock(
+                $business,
+                $branch,
+                $product
+            );
 
             $before = (float) $stock->quantity;
             $after = $before - $baseQuantity;
@@ -101,9 +150,18 @@ class StockService
             $stock->update(['quantity' => $after]);
 
             $this->createMovement(
-                $business, $branch, $product, $unit, $stock,
-                'sale', $quantity, -$baseQuantity,
-                $before, $after, $note, $user
+                $business,
+                $branch,
+                $product,
+                $unit,
+                $stock,
+                'sale',
+                $quantity,
+                -$baseQuantity,
+                $before,
+                $after,
+                $note,
+                $user
             );
 
             return $stock->fresh();
@@ -125,12 +183,31 @@ class StockService
             ]);
         }
 
-        return DB::transaction(function () use ($business, $branch, $product, $unit, $quantity, $note, $user) {
+        return DB::transaction(function () use (
+            $business,
+            $branch,
+            $product,
+            $unit,
+            $quantity,
+            $note,
+            $user
+        ) {
             $this->assertOwnership($business, $branch, $product, $unit);
 
-            $absoluteBaseQuantity = $this->quantityConverter->toBaseUnits(abs($quantity), $unit);
-            $baseQuantity = $quantity > 0 ? $absoluteBaseQuantity : -$absoluteBaseQuantity;
-            $stock = $this->lockOrCreateStock($business, $branch, $product);
+            $absoluteBaseQuantity = $this->quantityConverter->toBaseUnits(
+                abs($quantity),
+                $unit
+            );
+
+            $baseQuantity = $quantity > 0
+                ? $absoluteBaseQuantity
+                : -$absoluteBaseQuantity;
+
+            $stock = $this->lockOrCreateStock(
+                $business,
+                $branch,
+                $product
+            );
 
             $before = (float) $stock->quantity;
             $after = $before + $baseQuantity;
@@ -144,9 +221,18 @@ class StockService
             $stock->update(['quantity' => $after]);
 
             $this->createMovement(
-                $business, $branch, $product, $unit, $stock,
-                'adjustment', $quantity, $baseQuantity,
-                $before, $after, $note, $user
+                $business,
+                $branch,
+                $product,
+                $unit,
+                $stock,
+                'adjustment',
+                $quantity,
+                $baseQuantity,
+                $before,
+                $after,
+                $note,
+                $user
             );
 
             return $stock->fresh();
@@ -154,10 +240,9 @@ class StockService
     }
 
     /**
-     * Transfer stock from the current branch to another branch.
+     * Transfer stock between branches atomically.
      *
-     * The operation is atomic: both branch balances and both ledger
-     * movements are committed together or neither is committed.
+     * Both balances and both stock movements are committed together.
      */
     public function transfer(
         Business $business,
@@ -172,7 +257,14 @@ class StockService
         $this->assertPositiveQuantity($quantity);
 
         return DB::transaction(function () use (
-            $business, $fromBranch, $toBranch, $product, $unit, $quantity, $note, $user
+            $business,
+            $fromBranch,
+            $toBranch,
+            $product,
+            $unit,
+            $quantity,
+            $note,
+            $user
         ) {
             $this->assertBranchOwnership($business, $fromBranch);
             $this->assertBranchOwnership($business, $toBranch);
@@ -183,15 +275,23 @@ class StockService
                 ]);
             }
 
-            $this->assertOwnership($business, $fromBranch, $product, $unit);
+            $this->assertOwnership(
+                $business,
+                $fromBranch,
+                $product,
+                $unit
+            );
+
             $this->assertProductOwnership($business, $product);
 
-            $baseQuantity = $this->quantityConverter->toBaseUnits($quantity, $unit);
+            $baseQuantity = $this->quantityConverter->toBaseUnits(
+                $quantity,
+                $unit
+            );
 
             /*
-             * Ensure both balances exist before locking. Then acquire
-             * both row locks in deterministic branch-id order so two
-             * simultaneous opposite-direction transfers cannot deadlock.
+             * Ensure both balances exist before locking.
+             * Lock in deterministic branch-ID order to reduce deadlocks.
              */
             $this->ensureStock($business, $fromBranch, $product);
             $this->ensureStock($business, $toBranch, $product);
@@ -200,7 +300,7 @@ class StockService
 
             usort(
                 $branches,
-                fn (Branch $a, Branch $b) => strcmp($a->id, $b->id)
+                fn(Branch $a, Branch $b) => strcmp($a->id, $b->id)
             );
 
             $lockedStocks = [];
@@ -235,17 +335,43 @@ class StockService
             $referenceId = (string) Str::uuid();
 
             $this->createMovement(
-                $business, $fromBranch, $product, $unit, $source,
-                'transfer_out', $quantity, -$baseQuantity,
-                $sourceBefore, $sourceAfter, $note, $user,
-                'stock_transfer', $referenceId
+                $business,
+                $fromBranch,
+                $product,
+                $unit,
+                $source,
+                'transfer_out',
+                $quantity,
+                -$baseQuantity,
+                $sourceBefore,
+                $sourceAfter,
+                $note,
+                $user,
+                'stock_transfer',
+                $referenceId
             );
 
             $this->createMovement(
-                $business, $toBranch, $product, $unit, $destination,
-                'transfer_in', $quantity, $baseQuantity,
-                $destinationBefore, $destinationAfter, $note, $user,
-                'stock_transfer', $referenceId
+                $business,
+                $toBranch,
+                $product,
+                $unit,
+                $destination,
+                'transfer_in',
+                $quantity,
+                $baseQuantity,
+                $destinationBefore,
+                $destinationAfter,
+                $note,
+                $user,
+                'stock_transfer',
+                $referenceId
+            );
+
+            $this->barcodeMappingService->syncProductBarcodesToBranch(
+                (string) $business->id,
+                (string) $product->id,
+                (string) $toBranch->id,
             );
 
             return [
@@ -343,15 +469,19 @@ class StockService
         }
     }
 
-    private function assertBranchOwnership(Business $business, Branch $branch): void
-    {
+    private function assertBranchOwnership(
+        Business $business,
+        Branch $branch
+    ): void {
         if ($branch->business_id !== $business->id) {
             abort(403, 'Branch does not belong to this business.');
         }
     }
 
-    private function assertProductOwnership(Business $business, Product $product): void
-    {
+    private function assertProductOwnership(
+        Business $business,
+        Product $product
+    ): void {
         if ($product->business_id !== $business->id) {
             abort(403, 'Product does not belong to this business.');
         }

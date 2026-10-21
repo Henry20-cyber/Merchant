@@ -16,6 +16,7 @@ class ProductBarcode extends Model
     protected $fillable = [
         'business_id',
         'product_id',
+        'product_unit_id',
         'barcode',
         'type',
         'is_primary',

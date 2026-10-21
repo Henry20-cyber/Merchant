@@ -544,6 +544,30 @@ Route::middleware('auth:sanctum')->group(function () {
         'permission:products.update',
     ]);
 
+    /**
+     *  PRODUCT BARCODE REGISTRATION
+     */
+
+    Route::post(
+        '/businesses/current/products/{product}/barcodes',
+        [ProductController::class, 'storeBarcode']
+    )->middleware([
+        'business.context',
+        'subscription',
+        'permission:products.update',
+    ]);
+
+    Route::post(
+    '/businesses/current/products/barcodes/lookup',
+    [ProductController::class, 'lookupBarcode']
+)->middleware([
+    'business.context',
+    'subscription',
+    'branch.context',
+    'permission:sales.create',
+]);
+   
+
     /*
     |--------------------------------------------------------------------------
     | Customer Management
