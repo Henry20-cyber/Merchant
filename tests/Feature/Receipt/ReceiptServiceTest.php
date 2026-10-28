@@ -9,6 +9,7 @@ use App\Domains\Product\Models\Product;
 use App\Domains\Product\Models\ProductUnit;
 use App\Domains\Receipt\Models\Receipt;
 use App\Domains\Receipt\Services\ReceiptService;
+use App\Domains\Receipt\Services\ReceiptAuditService;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
 use App\Models\User;
@@ -196,6 +197,26 @@ class ReceiptServiceTest extends TestCase
         $this->assertNotNull(
             $receipt->issued_at
         );
+
+        $this->assertSame('sale', $receipt->receipt_type);
+        $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $receipt->verification_token);
+        $this->assertNotNull($receipt->snapshot_hash);
+        $this->assertNotNull($receipt->snapshot_signature);
+        $this->assertTrue(app(ReceiptAuditService::class)->snapshotIsAuthentic($receipt));
+        $this->assertTrue(app(ReceiptAuditService::class)->verifyChain($business->id));
+    }
+
+    public function test_snapshot_tampering_fails_integrity_verification(): void
+    {
+        [$business, $cashier] = $this->createBusinessWithCashier();
+        $sale = $this->createSale($business, $cashier);
+        $receipt = app(ReceiptService::class)->issue($sale, $cashier);
+
+        $snapshot = $receipt->snapshot;
+        $snapshot['sale']['total'] = '1.00';
+        $receipt->forceFill(['snapshot' => $snapshot])->save();
+
+        $this->assertFalse(app(ReceiptAuditService::class)->snapshotIsAuthentic($receipt->fresh()));
     }
 
     /*

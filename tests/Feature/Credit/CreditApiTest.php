@@ -11,6 +11,9 @@ use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
 use App\Domains\Organization\Services\BranchContextService;
 use App\Domains\Sales\Models\Sale;
+use App\Domains\Receipt\Models\Receipt;
+use App\Domains\Receipt\Services\ReceiptAuditService;
+use App\Domains\Receipt\Services\ReceiptQrCodeService;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Database\Seeders\PermissionSeeder;
@@ -274,6 +277,43 @@ public function test_credit_repayments_sync_sale_and_credit_payment_statuses(): 
         'settled',
         $credit->status,
         'A fully repaid credit should have settled status.'
+    );
+
+    $paymentReceipts = Receipt::query()
+        ->where('sale_id', $sale->id)
+        ->where('receipt_type', 'payment')
+        ->orderBy('issued_at')
+        ->get();
+
+    $this->assertCount(2, $paymentReceipts, 'Each successful credit repayment should receive its own receipt.');
+    $this->assertNotSame($paymentReceipts[0]->id, $paymentReceipts[1]->id);
+    $this->assertNotSame($paymentReceipts[0]->verification_token, $paymentReceipts[1]->verification_token);
+
+    $qrService = app(ReceiptQrCodeService::class);
+
+    foreach ($paymentReceipts as $paymentReceipt) {
+        $verificationUrl = $qrService->verificationUrl($paymentReceipt);
+        $svg = $qrService->svg($paymentReceipt);
+        $path = parse_url($verificationUrl, PHP_URL_PATH);
+
+        $this->assertNotEmpty($path);
+        $this->assertStringContainsString('<svg', $svg);
+        $this->assertStringContainsString('</svg>', $svg);
+
+        $this->getJson($path)
+            ->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.verification_status', 'verified')
+            ->assertJsonPath('data.receipt_type', 'payment')
+            ->assertJsonPath(
+                'data.receipt_number',
+                $paymentReceipt->receipt_number,
+            );
+    }
+
+    $this->assertTrue(
+        app(ReceiptAuditService::class)->verifyChain($business->id),
+        'The audit chain should remain valid after both payment receipts are verified.',
     );
 }
 }

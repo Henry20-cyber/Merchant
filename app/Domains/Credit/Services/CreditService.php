@@ -6,6 +6,8 @@ use App\Domains\Credit\Models\Credit;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\Branch;
 use App\Domains\Payment\Services\PaymentService;
+use App\Domains\Receipt\Services\ReceiptService;
+use App\Models\User;
 use App\Domains\Sales\Models\Sale;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -13,7 +15,8 @@ use Illuminate\Validation\ValidationException;
 class CreditService
 {
     public function __construct(
-        private PaymentService $paymentService
+        private PaymentService $paymentService,
+        private ReceiptService $receiptService
     ) {
     }
 
@@ -219,6 +222,29 @@ class CreditService
 
             // Update the credit's independent status.
             $this->refreshStatus($credit);
+
+            // Issue a separate receipt only after a successful repayment has been
+            // recorded and existing payment/credit statuses have been synchronized.
+            // This does not alter PaymentService's lifecycle decisions.
+            if ($payment->status === 'paid' && $credit->sale->payment_method === 'credit') {
+                $actor = auth()->user();
+                if (! $actor instanceof User || ! $business->memberships()
+                    ->where('user_id', $actor->id)->where('status', 'active')->exists()) {
+                    $actor = $credit->sale->cashier;
+                }
+                if ($actor instanceof User && ! $business->memberships()
+                    ->where('user_id', $actor->id)->where('status', 'active')->exists()) {
+                    $actor = null;
+                }
+
+                try {
+                    $this->receiptService->issuePayment($payment, $actor instanceof User ? $actor : null);
+                } catch (\Throwable $exception) {
+                    // A receipt-generation failure must not roll back a payment
+                    // that PaymentService has already accepted and synchronized.
+                    report($exception);
+                }
+            }
 
             return $payment;
         });

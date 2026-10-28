@@ -5,6 +5,7 @@ namespace App\Domains\Receipt\Services;
 use App\Domains\Customer\Models\Customer;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Receipt\Models\Receipt;
+use App\Domains\Payment\Models\Payment;
 use App\Domains\Sales\Models\Sale;
 use App\Domains\Sales\Models\SaleItem;
 use App\Models\User;
@@ -14,7 +15,8 @@ use Illuminate\Validation\ValidationException;
 class ReceiptService
 {
     public function __construct(
-        private ReceiptNumberGenerator $numberGenerator
+        private ReceiptNumberGenerator $numberGenerator,
+        private ReceiptAuditService $auditService,
     ) {
     }
 
@@ -109,6 +111,7 @@ class ReceiptService
              */
             $existingReceipt = Receipt::query()
                 ->where('sale_id', $sale->id)
+                ->where('receipt_type', 'sale')
                 ->lockForUpdate()
                 ->first();
 
@@ -153,15 +156,19 @@ class ReceiptService
             /*
              * Create the permanent receipt record.
              */
-            return Receipt::create([
+            $receipt = Receipt::create([
                 'business_id' => $business->id,
                 'sale_id' => $sale->id,
+                'receipt_type' => 'sale',
                 'receipt_number' => $receiptNumber,
                 'status' => 'issued',
                 'issued_by' => $issuedBy->id,
                 'issued_at' => now(),
+                'verification_token' => bin2hex(random_bytes(32)),
                 'snapshot' => $snapshot,
             ]);
+
+            return $this->protectAndAudit($receipt, $business, $issuedBy, 'sale_receipt_issued');
         });
     }
 
@@ -235,6 +242,7 @@ class ReceiptService
 
             $existingReceipt = Receipt::query()
                 ->where('sale_id', $sale->id)
+                ->where('receipt_type', 'sale')
                 ->lockForUpdate()
                 ->first();
 
@@ -291,18 +299,144 @@ class ReceiptService
                 'status' => $sale->credit->status,
             ];
 
-            return Receipt::create([
+            $receipt = Receipt::create([
                 'business_id' => $business->id,
                 'sale_id' => $sale->id,
+                'receipt_type' => 'sale',
                 'receipt_number' => $receiptNumber,
                 'status' => 'issued',
                 'issued_by' => $issuedBy->id,
                 'issued_at' => now(),
+                'verification_token' => bin2hex(random_bytes(32)),
                 'snapshot' => $snapshot,
             ]);
+
+            return $this->protectAndAudit($receipt, $business, $issuedBy, 'credit_sale_receipt_issued');
         });
     }
 
+
+    /**
+     * Issue a separate receipt for a successfully recorded credit repayment.
+     * This method does not create or alter the payment; PaymentService remains
+     * the source of truth for payment lifecycle and status.
+     */
+    public function issuePayment(Payment $payment, ?User $issuedBy): Receipt
+    {
+        return DB::transaction(function () use ($payment, $issuedBy): Receipt {
+            $payment = Payment::query()->whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            if ($payment->status !== 'paid' || ! $payment->sale_id || $payment->subscription_id) {
+                throw ValidationException::withMessages([
+                    'payment' => 'Only successful sale payments can receive a payment receipt.',
+                ]);
+            }
+
+            $sale = Sale::query()->whereKey($payment->sale_id)->lockForUpdate()->firstOrFail();
+            if ($sale->payment_method !== 'credit') {
+                throw ValidationException::withMessages(['payment' => 'Payment receipts are currently issued for credit repayments only.']);
+            }
+            $business = Business::query()->whereKey($payment->business_id)->firstOrFail();
+            if ($sale->business_id !== $business->id) {
+                throw ValidationException::withMessages(['payment' => 'Payment and sale business do not match.']);
+            }
+            if ($issuedBy) {
+                $isMember = $business->memberships()
+                    ->where('user_id', $issuedBy->id)
+                    ->where('status', 'active')
+                    ->exists();
+                if (! $isMember) {
+                    throw ValidationException::withMessages(['issued_by' => 'The issuing user does not belong to this business.']);
+                }
+            }
+
+            $existing = Receipt::query()->where('payment_id', $payment->id)->first();
+            if ($existing) {
+                return $existing;
+            }
+
+            $receiptNumber = $this->numberGenerator->next($business);
+            $saleReceipt = Receipt::query()
+                ->where('sale_id', $sale->id)
+                ->where('receipt_type', 'sale')
+                ->first();
+            $snapshot = $saleReceipt?->snapshot ?? [];
+            if ($snapshot === []) {
+                $sale->load(['items.product', 'items.productUnit', 'items.service', 'customer', 'cashier', 'payments', 'credit']);
+                $snapshot = $this->buildSnapshot($business, $sale, $receiptNumber);
+            }
+            $paidBeforeAndIncluding = Payment::query()
+                ->where('sale_id', $sale->id)
+                ->where('status', 'paid')
+                ->sum('amount');
+            $outstanding = max(0, (float) $sale->total - (float) $paidBeforeAndIncluding);
+            $snapshot['receipt'] = [
+                'number' => $receiptNumber,
+                'type' => 'payment',
+                'status' => 'issued',
+                'issued_at' => now()->toISOString(),
+            ];
+            $snapshot['sale']['payment_status'] = $sale->fresh()->payment_status;
+            $snapshot['payment'] = [
+                'id' => $payment->id,
+                'amount' => $this->money($payment->amount),
+                'method' => $payment->method,
+                'status' => $payment->status,
+                'reference' => $payment->reference,
+                'paid_at' => $payment->paid_at?->toISOString(),
+                'total_paid' => $this->money($paidBeforeAndIncluding),
+                'outstanding_amount' => $this->money($outstanding),
+            ];
+            if (isset($snapshot['credit'])) {
+                $snapshot['credit']['amount_paid'] = $this->money($paidBeforeAndIncluding);
+                $snapshot['credit']['outstanding_amount'] = $this->money($outstanding);
+                $snapshot['credit']['status'] = $sale->credit?->status ?? ($outstanding <= 0 ? 'settled' : 'partial');
+            }
+
+            $receipt = Receipt::create([
+                'business_id' => $business->id,
+                'sale_id' => $sale->id,
+                'payment_id' => $payment->id,
+                'receipt_type' => 'payment',
+                'receipt_number' => $receiptNumber,
+                'status' => 'issued',
+                'issued_by' => $issuedBy?->id,
+                'issued_at' => now(),
+                'verification_token' => bin2hex(random_bytes(32)),
+                'snapshot' => $snapshot,
+            ]);
+
+            return $this->protectAndAudit($receipt, $business, $issuedBy, 'credit_repayment_receipt_issued', $payment);
+        });
+    }
+
+    private function protectAndAudit(
+        Receipt $receipt,
+        Business $business,
+        ?User $actor,
+        string $eventType,
+        ?Payment $payment = null,
+    ): Receipt {
+        [$hash, $signature] = $this->auditService->signSnapshot($receipt);
+        $receipt->forceFill([
+            'snapshot_hash' => $hash,
+            'snapshot_signature' => $signature,
+        ])->save();
+
+        $this->auditService->record(
+            $business,
+            $eventType,
+            [
+                'receipt_number' => $receipt->receipt_number,
+                'receipt_type' => $receipt->receipt_type,
+                'snapshot_hash' => $hash,
+            ],
+            $receipt,
+            $payment,
+            $actor,
+        );
+
+        return $receipt->refresh();
+    }
 
     /**
      * Build the historical customer-facing representation
@@ -348,6 +482,7 @@ class ReceiptService
 
         'receipt' => [
             'number' => $receiptNumber,
+            'type' => 'sale',
             'status' => 'issued',
             'issued_at' => now()->toISOString(),
         ],

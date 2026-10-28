@@ -16,6 +16,7 @@ use App\Domains\Organization\Controllers\BranchController;
 
 use App\Domains\Subscription\Controllers\SubscriptionController;
 use App\Domains\Receipt\Controllers\ReceiptController;
+use App\Domains\Receipt\Controllers\PublicReceiptVerificationController;
 use App\Domains\Customer\Controllers\CustomerController;
 
 use App\Domains\Sales\Http\Controllers\SaleController;
@@ -66,6 +67,11 @@ Route::post('/auth/reset-password', [
     AuthController::class,
     'resetPassword',
 ])->middleware('throttle:6,1');
+
+Route::get('/receipts/verify/{token}', [
+    PublicReceiptVerificationController::class,
+    'show',
+])->where('token', '[a-f0-9]{64}')->middleware('throttle:20,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -1111,3 +1117,4 @@ Route::post('/webhooks/opay', [
     OpayWebhookController::class,
     'handle',
 ]);
+require __DIR__.'/founder.php';

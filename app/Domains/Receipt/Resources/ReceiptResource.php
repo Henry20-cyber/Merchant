@@ -19,6 +19,18 @@ class ReceiptResource extends JsonResource
 
             'receipt_number' => $this->receipt_number,
 
+            'receipt_type' => $this->receipt_type ?? 'sale',
+
+            'payment_id' => $this->payment_id,
+
+            'verification_url' => $this->verification_token
+                ? rtrim((string) config('app.url'), '/') . '/api/receipts/verify/' . $this->verification_token
+                : null,
+
+            'verification_qr_svg' => $request->boolean('include_qr') && $this->verification_token
+                ? app(\App\Domains\Receipt\Services\ReceiptQrCodeService::class)->svg($this->resource)
+                : null,
+
             'status' => $this->status,
 
             'issued_at' => $this->issued_at?->toISOString(),

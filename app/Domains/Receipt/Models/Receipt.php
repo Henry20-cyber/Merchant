@@ -3,6 +3,7 @@
 namespace App\Domains\Receipt\Models;
 
 use App\Domains\Organization\Models\Business;
+use App\Domains\Payment\Models\Payment;
 use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -25,6 +26,11 @@ class Receipt extends Model
     protected $fillable = [
         'business_id',
         'sale_id',
+        'payment_id',
+        'receipt_type',
+        'verification_token',
+        'snapshot_hash',
+        'snapshot_signature',
         'receipt_number',
         'status',
         'issued_by',
@@ -66,6 +72,14 @@ class Receipt extends Model
         return $this->belongsTo(
             Sale::class
         );
+    }
+
+    /**
+     * User who issued the receipt.
+     */
+    public function payment(): BelongsTo
+    {
+        return $this->belongsTo(Payment::class);
     }
 
     /**

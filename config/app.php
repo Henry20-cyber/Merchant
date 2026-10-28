@@ -125,4 +125,6 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    'founder_email' => env('FOUNDER_EMAIL'),
+
 ];

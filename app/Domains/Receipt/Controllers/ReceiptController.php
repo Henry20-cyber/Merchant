@@ -3,6 +3,7 @@
 namespace App\Domains\Receipt\Controllers;
 
 use App\Domains\Receipt\Models\Receipt;
+use App\Domains\Receipt\Services\ReceiptAuditService;
 use App\Domains\Receipt\Renderers\ReceiptHtmlRenderer;
 use App\Domains\Receipt\Renderers\ReceiptPdfRenderer;
 use App\Domains\Receipt\Resources\ReceiptResource;
@@ -123,7 +124,8 @@ class ReceiptController extends Controller
     public function print(
         Request $request,
         Receipt $receipt,
-        ReceiptHtmlRenderer $renderer
+        ReceiptHtmlRenderer $renderer,
+        ReceiptAuditService $auditService
     ): Response {
         $business = $this->currentBusiness($request);
         $branch = $this->currentBranch($request);
@@ -148,6 +150,8 @@ class ReceiptController extends Controller
             422,
             'Unsupported receipt format.'
         );
+
+        $auditService->record($business, 'receipt_printed', ['format' => $format], $receipt, null, $request->user());
 
         $html = $renderer->render(
             $receipt,
@@ -178,7 +182,8 @@ class ReceiptController extends Controller
     public function pdf(
         Request $request,
         Receipt $receipt,
-        ReceiptPdfRenderer $renderer
+        ReceiptPdfRenderer $renderer,
+        ReceiptAuditService $auditService
     ): Response {
         $business = $this->currentBusiness($request);
         $branch = $this->currentBranch($request);
@@ -211,6 +216,8 @@ class ReceiptController extends Controller
          * Generate the PDF from the immutable receipt
          * snapshot-backed representation.
          */
+        $auditService->record($business, 'receipt_pdf_downloaded', ['format' => $format], $receipt, null, $request->user());
+
         $pdf = $renderer->render(
             $receipt,
             $format

@@ -11,6 +11,9 @@ class ReceiptHtmlRenderer
         string $format = '80mm'
     ): string {
         return view('receipts.show', [
+            'verificationQrSvg' => $receipt->verification_token
+                ? app(\App\Domains\Receipt\Services\ReceiptQrCodeService::class)->svg($receipt)
+                : null,
             'receipt' => $receipt,
             'snapshot' => $receipt->snapshot ?? [],
             'format' => $format,

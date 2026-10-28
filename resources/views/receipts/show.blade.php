@@ -1,16 +1,11 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>
-        Receipt {{ $receipt->receipt_number }}
-    </title>
+    <title>Receipt {{ $receipt->receipt_number }}</title>
 
     <style>
         * {
@@ -28,21 +23,30 @@
 
         .receipt {
             width: 100%;
-            margin: 0 auto;
-            padding: 20px;
+            max-width: 100%;
+            margin: 0;
+            padding: 3mm;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
         }
 
         .receipt-58mm {
-            max-width: 58mm;
-        }
+    width: 100%;
+    max-width: 100%;
+    font-size: 9px;
+}
 
-        .receipt-80mm {
-            max-width: 80mm;
-        }
+.receipt-80mm {
+    width: 100%;
+    max-width: 100%;
+    font-size: 10px;
+}
 
-        .receipt-a4 {
-            max-width: 210mm;
-        }
+.receipt-a4 {
+    width: 100%;
+    max-width: 100%;
+    padding: 12mm;
+}
 
         .header {
             text-align: center;
@@ -67,10 +71,24 @@
         }
 
         .meta-row {
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
+            display: table;
+            width: 100%;
+            table-layout: fixed;
             margin-bottom: 4px;
+        }
+
+        .meta-row > span,
+        .meta-row > strong {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        .meta-row > span:last-child,
+        .meta-row > strong:last-child {
+            text-align: right;
         }
 
         .divider {
@@ -81,15 +99,33 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 13px;
+            table-layout: fixed;
+            font-size: inherit;
         }
 
         th,
         td {
-            padding: 6px 2px;
+            padding: 4px 2px;
             text-align: left;
             vertical-align: top;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
         }
+
+        th:first-child,
+td:first-child {
+    width: 48%;
+}
+
+th:nth-child(2),
+td:nth-child(2) {
+    width: 17%;
+}
+
+th:nth-child(3),
+td:nth-child(3) {
+    width: 35%;
+}
 
         th {
             border-bottom: 1px solid #222;
@@ -105,9 +141,22 @@
         }
 
         .total-row {
-            display: flex;
-            justify-content: space-between;
+            display: table;
+            width: 100%;
+            table-layout: fixed;
             margin-bottom: 5px;
+        }
+
+        .total-row > span {
+            display: table-cell;
+            width: 50%;
+            vertical-align: top;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        .total-row > span:last-child {
+            text-align: right;
         }
 
         .grand-total {
@@ -116,12 +165,27 @@
             border-top: 1px solid #222;
             padding-top: 8px;
             margin-top: 8px;
+            page-break-inside: avoid;
+        }
+
+        .verification-qr {
+            text-align: center;
+            margin: 16px auto 8px;
+            page-break-inside: avoid;
+        }
+
+        .verification-qr img {
+            display: block;
+            width: 30mm;
+            height: 30mm;
+            margin: 0 auto;
         }
 
         .footer {
             text-align: center;
             margin-top: 20px;
             font-size: 12px;
+            page-break-inside: avoid;
         }
 
         @media print {
@@ -149,65 +213,20 @@
     | Receipt Snapshot
     |--------------------------------------------------------------------------
     |
-    | IMPORTANT:
-    |
-    | Printed receipts must use the immutable snapshot stored on the
-    | receipt record.
-    |
-    | We intentionally do NOT read:
-    |
-    |   $receipt->sale->items
-    |   $receipt->sale->customer
-    |   $receipt->business
-    |
-    | for customer-facing historical data.
-    |
-    | This prevents an old receipt from changing when the underlying
-    | business, customer, product, or sale data changes later.
+    | Historical receipt information is read from the saved snapshot.
+    | Do not replace it with live sale, customer, or business relations.
     |
     */
 
     $snapshot = $snapshot ?? $receipt->snapshot ?? [];
 
-    $business = data_get(
-        $snapshot,
-        'business',
-        []
-    );
-
-    $receiptData = data_get(
-        $snapshot,
-        'receipt',
-        []
-    );
-
-    $sale = data_get(
-        $snapshot,
-        'sale',
-        []
-    );
-
-    $customer = data_get(
-        $snapshot,
-        'customer'
-    );
-
-    $cashier = data_get(
-        $snapshot,
-        'cashier'
-    );
-
-    $items = data_get(
-        $snapshot,
-        'items',
-        []
-    );
-
-    $payments = data_get(
-        $snapshot,
-        'payments',
-        []
-    );
+    $business = data_get($snapshot, 'business', []);
+    $receiptData = data_get($snapshot, 'receipt', []);
+    $sale = data_get($snapshot, 'sale', []);
+    $customer = data_get($snapshot, 'customer');
+    $cashier = data_get($snapshot, 'cashier');
+    $items = data_get($snapshot, 'items', []);
+    $payments = data_get($snapshot, 'payments', []);
 
     $format = $format ?? '80mm';
 
@@ -221,514 +240,273 @@
     $currency = $business['currency'] ?? 'NGN';
 
     $formatMoney = function ($amount) {
-        return number_format(
-            (float) $amount,
-            2
-        );
+        return number_format((float) $amount, 2);
     };
 @endphp
 
+<div class="receipt {{ $formatClass }}" id="receipt-{{ $format }}">
 
-<div
-    class="receipt {{ $formatClass }}"
-    id="receipt-{{ $format }}"
->
-
-    {{-- ================================================================
-         HEADER
-         ================================================================ --}}
+    {{-- HEADER --}}
 
     <div class="header">
-
         <div class="business-name">
             {{ $business['name'] ?? 'MerchantOS' }}
         </div>
 
         @if(!empty($business['address']))
-    <div>{{ $business['address'] }}</div>
-@endif
+            <div>{{ $business['address'] }}</div>
+        @endif
 
-@php
-    $businessLocation = array_filter([
-        $business['city'] ?? null,
-        $business['state'] ?? null,
-        $business['country'] ?? null,
-    ]);
-@endphp
+        @php
+            $businessLocation = array_filter([
+                $business['city'] ?? null,
+                $business['state'] ?? null,
+                $business['country'] ?? null,
+            ]);
+        @endphp
 
         @if(!empty($business['email']))
-            <div>
-                {{ $business['email'] }}
-            </div>
+            <div>{{ $business['email'] }}</div>
         @endif
 
         @if(!empty($business['phone']))
-            <div>
-                {{ $business['phone'] }}
-            </div>
+            <div>{{ $business['phone'] }}</div>
         @endif
 
         @if(!empty($business['website']))
-            <div>
-                {{ $business['website'] }}
-            </div>
+            <div>{{ $business['website'] }}</div>
         @endif
 
+        @if(count($businessLocation) > 0)
+            <div>{{ implode(', ', $businessLocation) }}</div>
+        @endif
 
-
-
-@if(count($businessLocation) > 0)
-    <div>{{ implode(', ', $businessLocation) }}</div>
-@endif
-
-        <div class="receipt-title">
-            RECEIPT
-        </div>
-
+        <div class="receipt-title">RECEIPT</div>
     </div>
 
-
-    {{-- ================================================================
-         RECEIPT METADATA
-         ================================================================ --}}
+    {{-- RECEIPT METADATA --}}
 
     <div class="meta">
-
         <div class="meta-row">
             <span>Receipt #</span>
-
             <strong>
                 {{ $receiptData['number'] ?? $receipt->receipt_number }}
             </strong>
         </div>
 
-
         @if(!empty($receiptData['issued_at']))
-
             <div class="meta-row">
-
                 <span>Date</span>
-
                 <span>
-                    {{ \Carbon\Carbon::parse(
-                        $receiptData['issued_at']
-                    )->format('Y-m-d H:i') }}
+                    {{ \Carbon\Carbon::parse($receiptData['issued_at'])->format('Y-m-d H:i') }}
                 </span>
-
             </div>
-
         @elseif($receipt->issued_at)
-
             <div class="meta-row">
-
                 <span>Date</span>
-
-                <span>
-                    {{ $receipt->issued_at->format('Y-m-d H:i') }}
-                </span>
-
+                <span>{{ $receipt->issued_at->format('Y-m-d H:i') }}</span>
             </div>
-
         @endif
-
 
         @if($cashier)
-
             <div class="meta-row">
-
                 <span>Cashier</span>
-
-                <span>
-                    {{ $cashier['name'] ?? '—' }}
-                </span>
-
+                <span>{{ $cashier['name'] ?? '—' }}</span>
             </div>
-
         @endif
-
     </div>
 
-
     <div class="divider"></div>
 
-
-    {{-- ================================================================
-         CUSTOMER
-         ================================================================ --}}
+    {{-- CUSTOMER --}}
 
     @if($customer)
-
         <div class="meta">
-
             <div class="meta-row">
-
                 <span>Customer</span>
-
-                <span>
-                    {{ $customer['name'] ?? '—' }}
-                </span>
-
+                <span>{{ $customer['name'] ?? '—' }}</span>
             </div>
-
 
             @if(!empty($customer['customer_number']))
-
                 <div class="meta-row">
-
                     <span>Customer #</span>
-
-                    <span>
-                        {{ $customer['customer_number'] }}
-                    </span>
-
+                    <span>{{ $customer['customer_number'] }}</span>
                 </div>
-
             @endif
-
 
             @if(!empty($customer['phone']))
-
                 <div class="meta-row">
-
                     <span>Phone</span>
-
-                    <span>
-                        {{ $customer['phone'] }}
-                    </span>
-
+                    <span>{{ $customer['phone'] }}</span>
                 </div>
-
             @endif
-
         </div>
-
     @endif
 
-
-    {{-- ================================================================
-         SALE INFORMATION
-         ================================================================ --}}
+    {{-- SALE INFORMATION --}}
 
     @if(!empty($sale['id']))
-
         <div class="meta">
-
             <div class="meta-row">
-
                 <span>Sale</span>
-
-                <span>
-                    {{ $sale['id'] }}
-                </span>
-
+                <span>{{ $sale['id'] }}</span>
             </div>
 
-
             @if(!empty($sale['payment_method']))
-
                 <div class="meta-row">
-
                     <span>Payment</span>
-
                     <span>
-                        {{ ucfirst(
-                            str_replace(
-                                '_',
-                                ' ',
-                                $sale['payment_method']
-                            )
-                        ) }}
+                        {{ ucfirst(str_replace('_', ' ', $sale['payment_method'])) }}
                     </span>
-
                 </div>
-
             @endif
-
         </div>
-
     @endif
-
 
     <div class="divider"></div>
 
-
-    {{-- ================================================================
-         LINE ITEMS
-         ================================================================ --}}
+    {{-- LINE ITEMS --}}
 
     <table>
-
         <thead>
-
             <tr>
-
-                <th>
-                    Item
-                </th>
-
-                <th class="text-right">
-                    Qty
-                </th>
-
-                <th class="text-right">
-                    Amount
-                </th>
-
+                <th>Item</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">Amount</th>
             </tr>
-
         </thead>
 
-
         <tbody>
-
             @forelse($items as $item)
-
                 <tr>
-
                     <td>
-
                         {{ $item['name'] ?? 'Item' }}
 
                         @if(($item['type'] ?? null) === 'service')
-
-                            <div style="font-size: 11px;">
-                                Service
-                            </div>
-
+                            <div style="font-size: 11px;">Service</div>
                         @endif
-
                     </td>
 
-
                     <td class="text-right">
-
                         {{ $item['quantity'] ?? '0' }}
-
                     </td>
-
 
                     <td class="text-right">
-
-                        {{ $formatMoney(
-                            $item['total'] ?? 0
-                        ) }}
-
+                        {{ $formatMoney($item['total'] ?? 0) }}
                     </td>
-
                 </tr>
 
-
-                @if(
-                    isset($item['discount'])
-                    && (float) $item['discount'] > 0
-                )
-
+                @if(isset($item['discount']) && (float) $item['discount'] > 0)
                     <tr>
-
-                        <td colspan="2">
-                            Discount
-                        </td>
-
+                        <td colspan="2">Discount</td>
                         <td class="text-right">
-
-                            -{{ $formatMoney(
-                                $item['discount']
-                            ) }}
-
+                            -{{ $formatMoney($item['discount']) }}
                         </td>
-
                     </tr>
-
                 @endif
-
             @empty
-
                 <tr>
-
-                    <td
-                        colspan="3"
-                        class="text-right"
-                    >
-                        No line items
-                    </td>
-
+                    <td colspan="3" class="text-right">No line items</td>
                 </tr>
-
             @endforelse
-
         </tbody>
-
     </table>
-
 
     <div class="divider"></div>
 
-
-    {{-- ================================================================
-         TOTALS
-         ================================================================ --}}
+    {{-- TOTALS --}}
 
     <div class="totals">
-
         <div class="total-row">
-
-            <span>
-                Subtotal
-            </span>
-
+            <span>Subtotal</span>
             <span>
                 {{ $currency }}
-                {{ $formatMoney(
-                    $sale['subtotal'] ?? 0
-                ) }}
+                {{ $formatMoney($sale['subtotal'] ?? 0) }}
             </span>
-
         </div>
 
-
-        @if(
-            isset($sale['discount'])
-            && (float) $sale['discount'] > 0
-        )
-
+        @if(isset($sale['discount']) && (float) $sale['discount'] > 0)
             <div class="total-row">
-
-                <span>
-                    Discount
-                </span>
-
+                <span>Discount</span>
                 <span>
                     -{{ $currency }}
-                    {{ $formatMoney(
-                        $sale['discount']
-                    ) }}
+                    {{ $formatMoney($sale['discount']) }}
                 </span>
-
             </div>
-
         @endif
 
-
-        @if(
-            isset($sale['vat_amount'])
-            && (float) $sale['vat_amount'] > 0
-        )
-
+        @if(isset($sale['vat_amount']) && (float) $sale['vat_amount'] > 0)
             <div class="total-row">
-
                 <span>
                     VAT
                     @if(isset($sale['vat_rate']))
                         ({{ $formatMoney($sale['vat_rate']) }}%)
                     @endif
                 </span>
-
                 <span>
                     {{ $currency }}
-                    {{ $formatMoney(
-                        $sale['vat_amount']
-                    ) }}
+                    {{ $formatMoney($sale['vat_amount']) }}
                 </span>
-
             </div>
-
         @endif
 
-
         <div class="total-row grand-total">
-
-            <span>
-                Total
-            </span>
-
+            <span>Total</span>
             <span>
                 {{ $currency }}
-                {{ $formatMoney(
-                    $sale['total'] ?? 0
-                ) }}
+                {{ $formatMoney($sale['total'] ?? 0) }}
             </span>
-
         </div>
-
     </div>
 
-
-    {{-- ================================================================
-         PAYMENT DETAILS
-         ================================================================ --}}
+    {{-- PAYMENT DETAILS --}}
 
     @if(count($payments) > 0)
-
         <div class="divider"></div>
 
         <div class="meta">
-
-            <strong>
-                Payment Details
-            </strong>
-
+            <strong>Payment Details</strong>
 
             @foreach($payments as $payment)
-
                 <div class="meta-row">
-
                     <span>
-                        {{ ucfirst(
-                            str_replace(
-                                '_',
-                                ' ',
-                                $payment['method'] ?? 'Payment'
-                            )
-                        ) }}
+                        {{ ucfirst(str_replace('_', ' ', $payment['method'] ?? 'Payment')) }}
                     </span>
-
                     <span>
                         {{ $currency }}
-                        {{ $formatMoney(
-                            $payment['amount'] ?? 0
-                        ) }}
+                        {{ $formatMoney($payment['amount'] ?? 0) }}
                     </span>
-
                 </div>
 
-
                 @if(!empty($payment['reference']))
-
                     <div class="meta-row">
-
-                        <span>
-                            Reference
-                        </span>
-
-                        <span>
-                            {{ $payment['reference'] }}
-                        </span>
-
+                        <span>Reference</span>
+                        <span>{{ $payment['reference'] }}</span>
                     </div>
-
                 @endif
-
             @endforeach
-
         </div>
-
     @endif
 
+    {{-- VERIFICATION QR CODE --}}
 
-    {{-- ================================================================
-         FOOTER
-         ================================================================ --}}
+    @if(!empty($verificationQrSvg))
+        <div class="verification-qr">
+            <img
+                src="data:image/svg+xml;base64,{{ base64_encode($verificationQrSvg) }}"
+                alt="Receipt verification QR code"
+            >
+            <div style="font-size:10px; margin-top:4px;">
+                Scan to verify receipt authenticity
+            </div>
+        </div>
+    @endif
+
+    {{-- FOOTER --}}
 
     <div class="footer">
-
-        <div>
-    Thanks for patronising us!
-</div>
-
-        <div>
-            Powered by MerchantOS
-        </div>
-
+        <div>Thanks for patronising us!</div>
+        <div>Powered by MerchantOS</div>
     </div>
 
 </div>
