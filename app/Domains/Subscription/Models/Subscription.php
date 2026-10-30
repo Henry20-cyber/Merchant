@@ -5,11 +5,34 @@ namespace App\Domains\Subscription\Models;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Payment\Models\Payment;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property string $id
+ * @property string $business_id
+ * @property string $plan_id
+ * @property string $status
+ * @property string|null $provider
+ * @property string|null $provider_customer_code
+ * @property string|null $provider_authorization_code
+ * @property string|null $provider_subscription_code
+ * @property string|null $provider_email_token
+ * @property bool $auto_renew
+ * @property \Illuminate\Support\Carbon|null $starts_at
+ * @property \Illuminate\Support\Carbon|null $current_period_start
+ * @property \Illuminate\Support\Carbon|null $current_period_end
+ * @property \Illuminate\Support\Carbon|null $grace_period_ends_at
+ * @property \Illuminate\Support\Carbon|null $restricted_at
+ * @property \Illuminate\Support\Carbon|null $cancelled_at
+ * @property \Illuminate\Support\Carbon|null $ended_at
+ * @property-read Business|null $business
+ * @property-read SubscriptionPlan|null $plan
+ * @use HasFactory<Factory<static>>
+ */
 class Subscription extends Model
 {
     use HasUuids;
@@ -52,6 +75,7 @@ protected function casts(): array
     ];
 }
 
+    /** @return BelongsTo<Business, $this> */
     public function business(): BelongsTo
     {
         return $this->belongsTo(
@@ -59,6 +83,7 @@ protected function casts(): array
         );
     }
 
+    /** @return BelongsTo<SubscriptionPlan, $this> */
     public function plan(): BelongsTo
     {
         return $this->belongsTo(
@@ -67,6 +92,7 @@ protected function casts(): array
         );
     }
 
+    /** @return HasMany<Payment, $this> */
     public function payments(): HasMany
     {
         return $this->hasMany(
