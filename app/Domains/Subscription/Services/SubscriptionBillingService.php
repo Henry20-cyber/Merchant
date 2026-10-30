@@ -3,6 +3,9 @@
 namespace App\Domains\Subscription\Services;
 
 use App\Domains\Payment\Contracts\PaymentGateway;
+use App\Domains\Organization\Models\BusinessUser;
+use App\Models\User;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use App\Domains\Subscription\Models\Subscription;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -19,8 +22,11 @@ class SubscriptionBillingService
      * the current billing period ends.
      */
     public function disableRenewal(
-        Subscription $subscription
+        Subscription $subscription,
+        User $actor,
     ): Subscription {
+        $this->authorizeBillingManager($actor, $subscription);
+
         return DB::transaction(function () use ($subscription) {
             $subscription = Subscription::query()
                 ->with('plan')
@@ -53,8 +59,11 @@ class SubscriptionBillingService
      * Resume automatic renewal before the current billing period ends.
      */
     public function enableRenewal(
-        Subscription $subscription
+        Subscription $subscription,
+        User $actor,
     ): Subscription {
+        $this->authorizeBillingManager($actor, $subscription);
+
         return DB::transaction(function () use ($subscription) {
             $subscription = Subscription::query()
                 ->with('plan')
@@ -162,6 +171,38 @@ class SubscriptionBillingService
 
             return $subscription->refresh();
         });
+    }
+
+
+    /**
+     * Authorize interactive billing changes against the subscription tenant.
+     * Webhook synchronization methods intentionally remain system operations.
+     */
+    private function authorizeBillingManager(
+        User $actor,
+        Subscription $subscription
+    ): void {
+        $isActiveMember = BusinessUser::query()
+            ->where('business_id', $subscription->business_id)
+            ->where('user_id', $actor->id)
+            ->where('status', 'active')
+            ->exists();
+
+        if (! $isActiveMember) {
+            throw new AccessDeniedHttpException(
+                'You do not have access to manage billing for this business.'
+            );
+        }
+
+        setPermissionsTeamId($subscription->business_id);
+        $actor->unsetRelation('roles');
+        $actor->unsetRelation('permissions');
+
+        if (! $actor->can('subscription.manage')) {
+            throw new AccessDeniedHttpException(
+                'You do not have permission to manage this business subscription.'
+            );
+        }
     }
 
     private function ensureManageable(
