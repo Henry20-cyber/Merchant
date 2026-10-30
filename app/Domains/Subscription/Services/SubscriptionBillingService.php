@@ -32,7 +32,6 @@ class SubscriptionBillingService
                 ->findOrFail($subscription->id);
 
             $this->authorizeBillingManager($actor, $subscription);
-            $this->authorizeBillingManager($actor, $subscription);
             $this->ensureManageable($subscription);
 
             if (! $subscription->auto_renew) {
@@ -68,6 +67,7 @@ class SubscriptionBillingService
                 ->lockForUpdate()
                 ->findOrFail($subscription->id);
 
+            $this->authorizeBillingManager($actor, $subscription);
             $this->ensureManageable($subscription);
 
             if ($subscription->auto_renew) {
