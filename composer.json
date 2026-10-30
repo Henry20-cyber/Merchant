@@ -69,7 +69,9 @@
             "npm run lint:check",
             "npm run format:check",
             "npm run types:check",
-            "@test"
+            "@php artisan config:clear --ansi",
+            "@types:check",
+            "@php artisan test"
         ],
         "types:check": [
             "phpstan analyse"
