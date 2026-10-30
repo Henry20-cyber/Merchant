@@ -130,7 +130,6 @@ class SubscriptionCheckoutServiceTest extends TestCase
 
         $result = $service->checkout(
             $actor,
-            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -389,7 +388,6 @@ class SubscriptionCheckoutServiceTest extends TestCase
     );
 
     $service->checkout(
-        $actor,
         $actor,
         $business,
         $plan,
