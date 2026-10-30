@@ -83,6 +83,27 @@ class SubscriptionCheckoutServiceTest extends TestCase
         return $mock;
     }
 
+
+    public function test_checkout_rejects_actor_from_another_business_before_gateway_call(): void
+    {
+        $business = $this->makeBusiness();
+        $otherBusiness = $this->makeBusiness();
+        $actor = $this->makeBillingActor($otherBusiness);
+        $plan = $this->makePlan();
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com'
+        ))->toThrow(\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException::class);
+
+        expect(Payment::where('business_id', $business->id)->exists())->toBeFalse();
+    }
+
     public function test_checkout_creates_pending_payment(): void
     {
         $business = $this->makeBusiness();
