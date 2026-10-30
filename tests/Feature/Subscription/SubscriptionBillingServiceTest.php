@@ -86,7 +86,7 @@ class SubscriptionBillingServiceTest extends TestCase
 
         expect(fn () => app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
-        ])->disableRenewal($subscription))
+        ])->disableRenewal($subscription, $actor))
             ->toThrow(ValidationException::class);
     }
 
