@@ -116,6 +116,7 @@ class RoleService
 
             'Manager' => [
                 'business.view',
+                'subscription.manage',
 
                 'users.view',
                 'users.invite',
