@@ -3,6 +3,9 @@
 namespace App\Domains\Subscription\Services;
 
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\BusinessUser;
+use App\Models\User;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
 use App\Domains\Subscription\Models\Subscription;
@@ -27,10 +30,12 @@ class SubscriptionCheckoutService
      * It does NOT activate the subscription.
      */
     public function checkout(
+        User $actor,
         Business $business,
         SubscriptionPlan $plan,
         string $email,
     ): array {
+        $this->authorizeBillingManager($actor, $business);
         $this->validatePlan($plan);
 
         $this->validateCurrency($plan);
@@ -152,6 +157,36 @@ class SubscriptionCheckoutService
             'authorization_url' => $result['authorization_url'],
             'access_code' => $result['access_code'],
         ];
+    }
+
+
+    /**
+     * Ensure the actor is an active member with billing permission
+     * in this exact tenant. Route middleware is not a service boundary.
+     */
+    private function authorizeBillingManager(User $actor, Business $business): void
+    {
+        $isActiveMember = BusinessUser::query()
+            ->where('business_id', $business->id)
+            ->where('user_id', $actor->id)
+            ->where('status', 'active')
+            ->exists();
+
+        if (! $isActiveMember) {
+            throw new AccessDeniedHttpException(
+                'You do not have access to manage billing for this business.'
+            );
+        }
+
+        setPermissionsTeamId($business->id);
+        $actor->unsetRelation('roles');
+        $actor->unsetRelation('permissions');
+
+        if (! $actor->can('subscription.manage')) {
+            throw new AccessDeniedHttpException(
+                'You do not have permission to manage this business subscription.'
+            );
+        }
     }
 
     private function validatePlan(
