@@ -35,6 +35,8 @@ class SubscriptionCheckoutService
         SubscriptionPlan $plan,
         string $email,
     ): array {
+        // Reject unauthorized callers before exposing subscription state.
+        $this->authorizeBillingManager($actor, $business);
         $this->validatePlan($plan);
 
         $this->validateCurrency($plan);
