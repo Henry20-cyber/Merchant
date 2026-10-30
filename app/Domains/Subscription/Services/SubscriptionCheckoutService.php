@@ -35,7 +35,6 @@ class SubscriptionCheckoutService
         SubscriptionPlan $plan,
         string $email,
     ): array {
-        $this->authorizeBillingManager($actor, $business);
         $this->validatePlan($plan);
 
         $this->validateCurrency($plan);
@@ -88,7 +87,10 @@ class SubscriptionCheckoutService
             $subscription,
             $plan,
             $reference,
+            $actor,
         ) {
+            $this->authorizeBillingManager($actor, $business);
+
             return Payment::create([
                 'business_id' => $business->id,
                 'subscription_id' => $subscription?->id,
@@ -170,6 +172,7 @@ class SubscriptionCheckoutService
             ->where('business_id', $business->id)
             ->where('user_id', $actor->id)
             ->where('status', 'active')
+            ->lockForUpdate()
             ->exists();
 
         if (! $isActiveMember) {
