@@ -119,15 +119,15 @@ class PermissionSeeder extends Seeder
             ]);
         }
 
-        // Backfill the new billing permission onto existing system Owner
-        // roles as well as newly provisioned businesses.
+        // Backfill billing management onto existing system Owner and
+        // Manager roles. Custom roles are deliberately excluded.
         $subscriptionPermission = Permission::query()
             ->where('name', 'subscription.manage')
             ->where('guard_name', 'web')
             ->firstOrFail();
 
         Role::query()
-            ->where('name', 'Owner')
+            ->whereIn('name', ['Owner', 'Manager'])
             ->where('guard_name', 'web')
             ->where('is_system', true)
             ->get()
