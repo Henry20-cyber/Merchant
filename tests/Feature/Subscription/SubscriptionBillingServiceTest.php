@@ -3,6 +3,10 @@
 namespace Tests\Feature\Subscription;
 
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\BusinessUser;
+use App\Models\User;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
@@ -19,6 +23,7 @@ class SubscriptionBillingServiceTest extends TestCase
     public function test_disabling_renewal_keeps_subscription_active(): void
     {
         $business = Business::factory()->create();
+        $actor = $this->makeBillingActor($business);
         $plan = $this->createPaidPlan();
         $subscription = $this->createSubscription($business, $plan);
 
@@ -30,7 +35,7 @@ class SubscriptionBillingServiceTest extends TestCase
 
         $result = app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
-        ])->disableRenewal($subscription);
+        ])->disableRenewal($subscription, $actor);
 
         expect($result->auto_renew)->toBeFalse();
         expect($result->status)->toBe('active');
@@ -56,7 +61,7 @@ class SubscriptionBillingServiceTest extends TestCase
 
         $result = app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
-        ])->enableRenewal($subscription);
+        ])->enableRenewal($subscription, $actor);
 
         expect($result->auto_renew)->toBeTrue();
         expect($result->status)->toBe('active');
@@ -83,6 +88,35 @@ class SubscriptionBillingServiceTest extends TestCase
             'paymentGateway' => $gateway,
         ])->disableRenewal($subscription))
             ->toThrow(ValidationException::class);
+    }
+
+
+    private function makeBillingActor(Business $business): User
+    {
+        $actor = User::factory()->create();
+
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $actor->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+
+        $permission = Permission::firstOrCreate([
+            'name' => 'subscription.manage',
+            'guard_name' => 'web',
+        ]);
+
+        setPermissionsTeamId($business->id);
+        $role = Role::firstOrCreate([
+            'name' => 'Owner',
+            'guard_name' => 'web',
+            'team_id' => $business->id,
+        ], ['is_system' => true]);
+        $role->givePermissionTo($permission);
+        $actor->assignRole($role);
+
+        return $actor;
     }
 
     private function createPaidPlan(): SubscriptionPlan
