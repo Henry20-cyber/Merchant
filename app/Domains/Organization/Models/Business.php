@@ -158,6 +158,7 @@ public function payments(): HasMany
 /**
  * Business has one current MerchantOS subscription.
  */
+/** @return HasOne<Subscription, $this> */
 public function subscription(): HasOne
 {
     return $this->hasOne(
