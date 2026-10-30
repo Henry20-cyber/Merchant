@@ -206,7 +206,7 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
         $checkout = $this
             ->withBusiness($business)
             ->postJson('/api/businesses/current/subscription/checkout', [
-                'plan_id' => (string) \Illuminate\\Support\\Str::uuid(),
+                'plan_id' => (string) \Illuminate\Support\Str::uuid(),
                 'email' => 'manager@example.com',
             ]);
 
