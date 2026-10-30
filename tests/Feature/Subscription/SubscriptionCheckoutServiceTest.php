@@ -3,6 +3,10 @@
 namespace Tests\Feature\Subscription;
 
 use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Models\BusinessUser;
+use App\Models\User;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
 use App\Domains\Subscription\Models\Subscription;
@@ -16,6 +20,35 @@ use Tests\TestCase;
 class SubscriptionCheckoutServiceTest extends TestCase
 {
     use RefreshDatabase;
+
+
+    private function makeBillingActor(Business $business): User
+    {
+        $actor = User::factory()->create();
+
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $actor->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+
+        $permission = Permission::firstOrCreate([
+            'name' => 'subscription.manage',
+            'guard_name' => 'web',
+        ]);
+
+        setPermissionsTeamId($business->id);
+        $role = Role::firstOrCreate([
+            'name' => 'Owner',
+            'guard_name' => 'web',
+            'team_id' => $business->id,
+        ], ['is_system' => true]);
+        $role->givePermissionTo($permission);
+        $actor->assignRole($role);
+
+        return $actor;
+    }
 
     private function makePlan(
         string $slug = 'medium-monthly',
@@ -53,6 +86,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_creates_pending_payment(): void
     {
         $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
 
         $plan = $this->makePlan();
 
@@ -74,6 +108,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         $result = $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -325,6 +360,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
     );
 
     $service->checkout(
+        $actor,
         $business,
         $plan,
         'merchant@example.com'
