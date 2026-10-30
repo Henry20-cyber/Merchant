@@ -87,6 +87,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_rejects_actor_from_another_business_before_gateway_call(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
         $otherBusiness = $this->makeBusiness();
         $actor = $this->makeBillingActor($otherBusiness);
         $plan = $this->makePlan();
@@ -107,6 +109,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_creates_pending_payment(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
         $actor = $this->makeBillingActor($business);
 
         $plan = $this->makePlan();
@@ -158,6 +162,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     {
         $business = $this->makeBusiness();
 
+        $actor = $this->makeBillingActor($business);
+
         $plan = $this->makePlan(
             price: '12500.00'
         );
@@ -193,6 +199,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_rejects_paid_plan_without_paystack_recurring_configuration(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
         $plan = $this->makePlan();
         $plan->forceFill(['paystack_plan_code' => null])->save();
 
@@ -210,6 +218,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_rejects_new_payment_when_recurring_subscription_already_exists(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
         $plan = $this->makePlan();
 
         Subscription::create([
@@ -237,6 +247,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     {
         $business = $this->makeBusiness();
 
+        $actor = $this->makeBillingActor($business);
+
         $plan = $this->makePlan();
 
         $plan->update([
@@ -261,6 +273,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     {
         $business = $this->makeBusiness();
 
+        $actor = $this->makeBillingActor($business);
+
         $plan = $this->makePlan();
 
         $plan->update([
@@ -284,6 +298,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_checkout_does_not_activate_subscription(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
 
         $plan = $this->makePlan();
 
@@ -321,6 +337,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
     public function test_failed_gateway_initialization_does_not_leave_paid_payment(): void
     {
         $business = $this->makeBusiness();
+
+        $actor = $this->makeBillingActor($business);
 
         $plan = $this->makePlan();
 
@@ -361,6 +379,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
 {
     $business = $this->makeBusiness();
 
+    $actor = $this->makeBillingActor($business);
+
     $plan = $this->makePlan(
         slug: 'low-monthly',
         price: '3000.00',
@@ -398,6 +418,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
 public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
 {
     $business = $this->makeBusiness();
+
+    $actor = $this->makeBillingActor($business);
 
     $plan = $this->makePlan(
         slug: 'low-yearly',
