@@ -25,14 +25,14 @@ class SubscriptionBillingService
         Subscription $subscription,
         User $actor,
     ): Subscription {
-        $this->authorizeBillingManager($actor, $subscription);
-
-        return DB::transaction(function () use ($subscription) {
+        return DB::transaction(function () use ($subscription, $actor) {
             $subscription = Subscription::query()
                 ->with('plan')
                 ->lockForUpdate()
                 ->findOrFail($subscription->id);
 
+            $this->authorizeBillingManager($actor, $subscription);
+            $this->authorizeBillingManager($actor, $subscription);
             $this->ensureManageable($subscription);
 
             if (! $subscription->auto_renew) {
@@ -62,9 +62,7 @@ class SubscriptionBillingService
         Subscription $subscription,
         User $actor,
     ): Subscription {
-        $this->authorizeBillingManager($actor, $subscription);
-
-        return DB::transaction(function () use ($subscription) {
+        return DB::transaction(function () use ($subscription, $actor) {
             $subscription = Subscription::query()
                 ->with('plan')
                 ->lockForUpdate()
@@ -186,6 +184,7 @@ class SubscriptionBillingService
             ->where('business_id', $subscription->business_id)
             ->where('user_id', $actor->id)
             ->where('status', 'active')
+            ->lockForUpdate()
             ->exists();
 
         if (! $isActiveMember) {
