@@ -28,6 +28,7 @@ class RoleService
             'Owner' => [
                 'business.view',
                 'business.update',
+                'subscription.manage',
 
                 'users.view',
                 'users.invite',
