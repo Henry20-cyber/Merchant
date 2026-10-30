@@ -32,7 +32,7 @@ class EmployeeRegistrationRequest extends FormRequest
                 'required',
                 'string',
                 'confirmed',
-                Password::min(8),
+                Password::default(),
             ],
 
             'password_confirmation' => [

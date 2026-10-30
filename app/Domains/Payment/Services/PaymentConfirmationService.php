@@ -31,11 +31,32 @@ class PaymentConfirmationService
      */
     public function confirm(string $reference): Payment
     {
-        return DB::transaction(function () use ($reference) {
-            /*
-             * Lock the payment so two simultaneous requests
-             * cannot fulfil the same payment concurrently.
-             */
+        // Read first and perform the network verification before opening a
+        // database transaction or acquiring row locks.
+        $payment = Payment::query()
+            ->where('reference', $reference)
+            ->first();
+
+        if (! $payment) {
+            throw ValidationException::withMessages([
+                'reference' => 'Payment not found.',
+            ]);
+        }
+
+        if ($payment->status === 'paid') {
+            return $payment;
+        }
+
+        if ($payment->status !== 'pending') {
+            throw ValidationException::withMessages([
+                'payment' => 'Only pending payments can be confirmed.',
+            ]);
+        }
+
+        // Paystack is authoritative. Network I/O must not hold DB row locks.
+        $verified = $this->paymentGateway->verify($reference);
+
+        return DB::transaction(function () use ($reference, $verified) {
             $payment = Payment::query()
                 ->where('reference', $reference)
                 ->lockForUpdate()
@@ -47,31 +68,17 @@ class PaymentConfirmationService
                 ]);
             }
 
-            /*
-             * Idempotency.
-             *
-             * If this payment was already successfully processed,
-             * simply return it.
-             */
+            // Another concurrent confirmation may have completed while the
+            // provider verification was in flight.
             if ($payment->status === 'paid') {
                 return $payment->refresh();
             }
 
-            /*
-             * Only pending payments may be confirmed.
-             */
             if ($payment->status !== 'pending') {
                 throw ValidationException::withMessages([
                     'payment' => 'Only pending payments can be confirmed.',
                 ]);
             }
-
-            /*
-             * Ask Paystack for the authoritative transaction state.
-             */
-            $verified = $this->paymentGateway->verify(
-                $payment->reference
-            );
 
             /*
              * A provider-reported failed transaction is an expected
@@ -145,7 +152,7 @@ class PaymentConfirmationService
                 );
 
                 if (
-                    $verifiedCurrency !== '' &&
+                    $verifiedCurrency === '' ||
                     $verifiedCurrency !== $expectedCurrency
                 ) {
                     throw ValidationException::withMessages([
@@ -246,6 +253,12 @@ class PaymentConfirmationService
             ]);
         }
 
+        if (($verified['amount'] ?? null) !== $this->toMinorUnits((string) $plan->price)) {
+            throw ValidationException::withMessages([
+                'amount' => 'Payment amount does not match the selected subscription plan.',
+            ]);
+        }
+
         /*
          * A recurring subscription requires a provider plan code.
          */
@@ -287,6 +300,15 @@ class PaymentConfirmationService
             $subscription &&
             $subscription->provider_subscription_code
         ) {
+            if ((string) $subscription->plan_id !== (string) $plan->id) {
+                // Do not silently attach a payment for a different plan to
+                // the existing provider subscription. The checkout guard
+                // prevents new cases; this protects older pending attempts.
+                throw ValidationException::withMessages([
+                    'subscription' => 'This payment cannot change an existing recurring Paystack plan automatically. The payment requires support reconciliation.',
+                ]);
+            }
+
             $payment->forceFill([
                 'subscription_id' => $subscription->id,
             ])->save();

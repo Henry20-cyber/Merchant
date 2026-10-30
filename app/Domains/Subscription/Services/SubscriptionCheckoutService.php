@@ -56,6 +56,15 @@ class SubscriptionCheckoutService
             ]);
         }
 
+        // This release does not yet implement a safe Paystack recurring-plan
+        // replacement workflow. Do not collect a second payment that cannot
+        // be applied to an existing recurring subscription.
+        if ($subscription?->provider_subscription_code) {
+            throw ValidationException::withMessages([
+                'subscription' => 'A recurring subscription is already active. Plan changes are temporarily unavailable; contact support before making another payment.',
+            ]);
+        }
+
         /*
          * Generate a MerchantOS-owned reference.
          *
@@ -151,6 +160,12 @@ class SubscriptionCheckoutService
         if (! $plan->is_active) {
             throw ValidationException::withMessages([
                 'plan' => 'The selected subscription plan is inactive.',
+            ]);
+        }
+
+        if (preg_match('/^0+(?:\.0+)?$/', (string) $plan->price) !== 1 && ! $plan->paystack_plan_code) {
+            throw ValidationException::withMessages([
+                'plan' => 'This plan is not yet configured for recurring billing. Please contact support.',
             ]);
         }
     }

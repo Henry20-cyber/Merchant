@@ -25,6 +25,13 @@ class ReceiptNumberGenerator
     public function next(Business $business): string
     {
         return DB::transaction(function () use ($business) {
+            // A sequence row may not exist yet, so lock the parent business
+            // to serialize first-time initialization across concurrent requests.
+            Business::query()
+                ->whereKey($business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
             $sequence = DB::table('receipt_sequences')
                 ->where('business_id', $business->id)
                 ->lockForUpdate()

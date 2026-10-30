@@ -681,6 +681,46 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
     }
 
     /**
+     * Missing provider currency must fail closed for non-subscription payments.
+     */
+    public function test_missing_currency_is_rejected_for_sale_payment(): void
+    {
+        $business = $this->createBusiness();
+
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => null,
+            'amount' => '10000.00',
+            'method' => 'paystack',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-TEST-MISSING-CURRENCY',
+            'metadata' => ['type' => 'sale'],
+        ]);
+
+        $this->gateway
+            ->shouldReceive('verify')
+            ->once()
+            ->with($payment->reference)
+            ->andReturn([
+                'success' => true,
+                'status' => 'success',
+                'reference' => $payment->reference,
+                'amount' => 1_000_000,
+                'authorization_code' => null,
+                'customer_code' => null,
+                'raw' => [],
+            ]);
+
+        expect(
+            fn () => app(PaymentConfirmationService::class)
+                ->confirm($payment->reference)
+        )->toThrow(ValidationException::class);
+
+        expect($payment->fresh()->status)->toBe('pending');
+    }
+
+    /**
      * A failed Paystack transaction is persisted as failed.
      */
     public function test_failed_transaction_marks_pending_payment_failed(): void

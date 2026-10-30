@@ -35,13 +35,18 @@ class BranchService
         array $data
     ): Branch {
         return DB::transaction(function () use ($business, $data): Branch {
-            $this->subscriptionLimitService->ensureBranchCapacity($business);
+            // Serialize branch invariants per business. Locking the parent row
+            // also protects the first Head Office creation when no branch exists.
+            $lockedBusiness = Business::query()
+                ->whereKey($business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            $isHeadOffice = (bool) (
-                $data['is_head_office'] ?? false
-            );
+            $this->subscriptionLimitService->ensureBranchCapacity($lockedBusiness);
 
-            if ($isHeadOffice && $this->hasHeadOffice($business)) {
+            $isHeadOffice = (bool) ($data['is_head_office'] ?? false);
+
+            if ($isHeadOffice && $this->hasHeadOffice($lockedBusiness)) {
                 throw ValidationException::withMessages([
                     'is_head_office' => [
                         'This business already has a Head Office.',
@@ -49,7 +54,7 @@ class BranchService
                 ]);
             }
 
-            return $business->branches()->create([
+            return $lockedBusiness->branches()->create([
                 'name' => $data['name'],
                 'code' => $data['code'],
                 'phone' => $data['phone'] ?? null,
@@ -71,64 +76,60 @@ class BranchService
         Branch $branch,
         array $data
     ): Branch {
-        $this->ensureBelongsToBusiness(
-            $branch,
-            $business
-        );
+        return DB::transaction(function () use ($business, $branch, $data): Branch {
+            Business::query()
+                ->whereKey($business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $isHeadOffice = (bool) (
-            $data['is_head_office']
-            ?? $branch->is_head_office
-        );
+            $lockedBranch = Branch::query()
+                ->whereKey($branch->id)
+                ->where('business_id', $business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        /*
-         * A Head Office cannot be demoted while it
-         * remains the business's only Head Office.
-         */
-        if (
-            $branch->is_head_office &&
-            ! $isHeadOffice &&
-            ! $this->hasAnotherHeadOffice(
-                $business,
-                $branch
-            )
-        ) {
-            throw ValidationException::withMessages([
-                'is_head_office' => [
-                    'The business must have a Head Office.',
-                ],
+            $isHeadOffice = (bool) (
+                $data['is_head_office'] ?? $lockedBranch->is_head_office
+            );
+
+            if (
+                $lockedBranch->is_head_office &&
+                ! $isHeadOffice &&
+                ! $this->hasAnotherHeadOffice($business, $lockedBranch)
+            ) {
+                throw ValidationException::withMessages([
+                    'is_head_office' => [
+                        'The business must have a Head Office.',
+                    ],
+                ]);
+            }
+
+            if (
+                ! $lockedBranch->is_head_office &&
+                $isHeadOffice &&
+                $this->hasHeadOffice($business)
+            ) {
+                throw ValidationException::withMessages([
+                    'is_head_office' => [
+                        'This business already has a Head Office.',
+                    ],
+                ]);
+            }
+
+            $lockedBranch->update([
+                'name' => $data['name'] ?? $lockedBranch->name,
+                'code' => $data['code'] ?? $lockedBranch->code,
+                'phone' => $data['phone'] ?? $lockedBranch->phone,
+                'email' => $data['email'] ?? $lockedBranch->email,
+                'address' => $data['address'] ?? $lockedBranch->address,
+                'city' => $data['city'] ?? $lockedBranch->city,
+                'state' => $data['state'] ?? $lockedBranch->state,
+                'country' => $data['country'] ?? $lockedBranch->country,
+                'is_head_office' => $isHeadOffice,
             ]);
-        }
 
-        /*
-         * A normal branch cannot become Head Office
-         * when another Head Office already exists.
-         */
-        if (
-            ! $branch->is_head_office &&
-            $isHeadOffice &&
-            $this->hasHeadOffice($business)
-        ) {
-            throw ValidationException::withMessages([
-                'is_head_office' => [
-                    'This business already has a Head Office.',
-                ],
-            ]);
-        }
-
-        $branch->update([
-            'name' => $data['name'] ?? $branch->name,
-            'code' => $data['code'] ?? $branch->code,
-            'phone' => $data['phone'] ?? $branch->phone,
-            'email' => $data['email'] ?? $branch->email,
-            'address' => $data['address'] ?? $branch->address,
-            'city' => $data['city'] ?? $branch->city,
-            'state' => $data['state'] ?? $branch->state,
-            'country' => $data['country'] ?? $branch->country,
-            'is_head_office' => $isHeadOffice,
-        ]);
-
-        return $branch->refresh();
+            return $lockedBranch->refresh();
+        });
     }
 
     /**
@@ -138,20 +139,28 @@ class BranchService
         Business $business,
         Branch $branch
     ): void {
-        $this->ensureBelongsToBusiness(
-            $branch,
-            $business
-        );
+        DB::transaction(function () use ($business, $branch): void {
+            Business::query()
+                ->whereKey($business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        if ($branch->is_head_office) {
-            throw ValidationException::withMessages([
-                'branch' => [
-                    'The Head Office cannot be deleted.',
-                ],
-            ]);
-        }
+            $lockedBranch = Branch::query()
+                ->whereKey($branch->id)
+                ->where('business_id', $business->id)
+                ->lockForUpdate()
+                ->firstOrFail();
 
-        $branch->delete();
+            if ($lockedBranch->is_head_office) {
+                throw ValidationException::withMessages([
+                    'branch' => [
+                        'The Head Office cannot be deleted.',
+                    ],
+                ]);
+            }
+
+            $lockedBranch->delete();
+        });
     }
 
     /**
@@ -178,18 +187,4 @@ class BranchService
             ->exists();
     }
 
-    /**
-     * Ensure the branch belongs to the current business.
-     */
-    private function ensureBelongsToBusiness(
-        Branch $branch,
-        Business $business
-    ): void {
-        if ($branch->business_id !== $business->id) {
-            abort(
-                404,
-                'Branch not found.'
-            );
-        }
-    }
 }

@@ -24,7 +24,6 @@ use App\Domains\Sales\Http\Controllers\SaleController;
 use App\Domains\Credit\Http\Controllers\CreditController;
 
 use App\Domains\Payment\Controllers\PaystackWebhookController;
-use App\Domains\Payment\Http\Controllers\OpayWebhookController;
 
 use App\Domains\Catalog\Controllers\CategoryController;
 use App\Domains\Service\Controllers\ServiceController;
@@ -32,9 +31,7 @@ use App\Domains\Expenses\Controllers\ExpenseController;
 
 use App\Domains\Organization\Services\BusinessContextService;
 
-use App\Http\Middleware\DebugSession;
 
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -46,12 +43,12 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/register', [
     AuthController::class,
     'register',
-]);
+])->middleware('throttle:register');
 
 Route::post('/auth/register-employee', [
     EmployeeRegistrationController::class,
     'register',
-]);
+])->middleware('throttle:employee-registration');
 
 Route::post('/auth/login', [
     AuthController::class,
@@ -82,12 +79,12 @@ Route::get('/receipts/verify/{token}', [
 Route::get('/business-types', [
     BusinessTypeController::class,
     'index',
-]);
+])->middleware('throttle:public-api');
 
 Route::get('/subscription-plans', [
     SubscriptionController::class,
     'plans',
-]);
+])->middleware('throttle:public-api');
 
 /*
 |--------------------------------------------------------------------------
@@ -102,7 +99,7 @@ Route::get('/subscription-plans', [
 |
 */
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
 
     /*
     |--------------------------------------------------------------------------
@@ -280,7 +277,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/businesses/current/members', [
         BusinessMemberController::class,
         'index',
-    ])->middleware('permission:users.view');
+    ])->middleware(['business.context', 'permission:users.view']);
 
 
     /*
@@ -292,7 +289,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/businesses/current/members/{user}/role', [
         BusinessMemberController::class,
         'assignRole',
-    ])->middleware('permission:roles.assign');
+    ])->middleware(['business.context', 'permission:roles.assign']);
 
 
     /*
@@ -304,7 +301,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/businesses/current/members/{user}', [
         BusinessMemberController::class,
         'removeMember',
-    ]);
+    ])->middleware('business.context');
 
     /*
 |--------------------------------------------------------------------------
@@ -1044,52 +1041,7 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
-    /*
-    |--------------------------------------------------------------------------
-    | Temporary Authentication Debugging
-    |--------------------------------------------------------------------------
-    |
-    | Remove these routes after Sanctum authentication is confirmed.
-    |
-    */
 
-    Route::get('/debug/auth-context', function (Request $request) {
-
-        return response()->json([
-            'authenticated' => $request->user() !== null,
-            'user_id' => $request->user()?->id,
-            'session_id' => $request->session()->getId(),
-            'current_business_id' => session('current_business_id'),
-        ]);
-    });
-});
-
-/*
-|--------------------------------------------------------------------------
-| Temporary CSRF / Session Debugging
-|--------------------------------------------------------------------------
-|
-| These routes are temporary and should be removed after authentication
-| debugging is complete.
-|
-*/
-
-Route::middleware(DebugSession::class)
-    ->get('/debug/csrf-session', function (Request $request) {
-
-        return response()->json([
-            'session_id' => $request->session()->getId(),
-            'csrf_token' => $request->session()->token(),
-        ]);
-    });
-
-Route::post('/debug/ping', function (Request $request) {
-
-    return response()->json([
-        'received' => true,
-        'method' => $request->method(),
-        'has_session' => $request->hasSession(),
-    ]);
 });
 
 /*
@@ -1105,16 +1057,6 @@ Route::post('/debug/ping', function (Request $request) {
 Route::post('/webhooks/paystack', [
     PaystackWebhookController::class,
     'handle',
-]);
+])->middleware('throttle:paystack-webhook');
 
-/*
-|--------------------------------------------------------------------------
-| OPay Webhook
-|--------------------------------------------------------------------------
-*/
-
-Route::post('/webhooks/opay', [
-    OpayWebhookController::class,
-    'handle',
-]);
 require __DIR__.'/founder.php';

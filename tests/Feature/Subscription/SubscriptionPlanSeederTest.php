@@ -174,6 +174,19 @@ class SubscriptionPlanSeederTest extends TestCase
         )->toBe(6);
     }
 
+    public function test_seeder_preserves_existing_paystack_plan_codes(): void
+    {
+        $this->seed(SubscriptionPlanSeeder::class);
+
+        $plan = SubscriptionPlan::where('slug', 'medium-monthly')->firstOrFail();
+        $plan->forceFill(['paystack_plan_code' => 'PLN_real_configured_value'])->save();
+
+        $this->seed(SubscriptionPlanSeeder::class);
+
+        expect($plan->fresh()->paystack_plan_code)
+            ->toBe('PLN_real_configured_value');
+    }
+
     public function test_all_standard_plans_are_active(): void
     {
         $this->seed(SubscriptionPlanSeeder::class);

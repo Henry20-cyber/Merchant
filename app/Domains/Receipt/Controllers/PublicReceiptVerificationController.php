@@ -49,6 +49,7 @@ class PublicReceiptVerificationController
             : data_get($snapshot, 'sale.total');
 
         $summary = [
+            'verified' => $verified,
             'verification_status' => $verificationStatus,
             'transaction_status' => $receipt->receipt_type === 'payment'
                 ? $receipt->payment?->status

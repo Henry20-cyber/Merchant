@@ -28,6 +28,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             'price' => $price,
             'currency' => 'NGN',
             'billing_interval' => $interval,
+            'paystack_plan_code' => 'PLN_test_account',
             'is_active' => true,
         ]);
     }
@@ -130,6 +131,47 @@ class SubscriptionCheckoutServiceTest extends TestCase
             $plan,
             'merchant@example.com'
         );
+    }
+
+    public function test_checkout_rejects_paid_plan_without_paystack_recurring_configuration(): void
+    {
+        $business = $this->makeBusiness();
+        $plan = $this->makePlan();
+        $plan->forceFill(['paystack_plan_code' => null])->save();
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $business,
+            $plan,
+            'merchant@example.com'
+        ))->toThrow(ValidationException::class);
+    }
+
+    public function test_checkout_rejects_new_payment_when_recurring_subscription_already_exists(): void
+    {
+        $business = $this->makeBusiness();
+        $plan = $this->makePlan();
+
+        Subscription::create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'provider' => 'paystack',
+            'provider_subscription_code' => 'SUB_test_existing',
+            'current_period_start' => now(),
+            'current_period_end' => now()->addMonth(),
+        ]);
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $business,
+            $plan,
+            'merchant@example.com'
+        ))->toThrow(ValidationException::class);
     }
 
     public function test_checkout_rejects_inactive_plan(): void

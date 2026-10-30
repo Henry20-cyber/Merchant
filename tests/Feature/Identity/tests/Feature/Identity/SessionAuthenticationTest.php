@@ -28,11 +28,8 @@ class SessionAuthenticationTest extends TestCase
 
         $this->assertAuthenticatedAs($user, 'web');
 
-        $this->getJson('/api/debug/auth-context')
-            ->assertOk()
-            ->assertJson([
-                'authenticated' => true,
-                'user_id' => $user->id,
-            ]);
+        $this->getJson('/api/debug/auth-context')->assertNotFound();
+        $this->getJson('/api/debug/csrf-session')->assertNotFound();
+        $this->postJson('/api/debug/ping')->assertNotFound();
     }
 }

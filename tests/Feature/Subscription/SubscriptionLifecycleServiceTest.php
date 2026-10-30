@@ -138,6 +138,37 @@ class SubscriptionLifecycleServiceTest extends TestCase
             ->not->toBeNull();
     }
 
+    public function test_active_subscription_without_period_end_becomes_past_due(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = $this->createSubscription($business, $plan, [
+            'status' => 'active',
+            'auto_renew' => true,
+            'current_period_start' => now()->subMonth(),
+            'current_period_end' => null,
+        ]);
+
+        $this->lifecycle->process($subscription);
+
+        expect($subscription->refresh()->status)->toBe('past_due');
+    }
+
+    public function test_trial_without_period_end_becomes_past_due(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = $this->createSubscription($business, $plan, [
+            'status' => 'trial',
+            'current_period_start' => now()->subDays(8),
+            'current_period_end' => null,
+        ]);
+
+        $this->lifecycle->process($subscription);
+
+        expect($subscription->refresh()->status)->toBe('past_due');
+    }
+
     /*
     |--------------------------------------------------------------------------
     | Past due → grace period
@@ -231,6 +262,22 @@ class SubscriptionLifecycleServiceTest extends TestCase
 
         expect($subscription->restricted_at)
             ->not->toBeNull();
+    }
+
+    public function test_grace_period_without_end_date_becomes_restricted(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = $this->createSubscription($business, $plan, [
+            'status' => 'grace_period',
+            'current_period_end' => now()->subDays(10),
+            'grace_period_ends_at' => null,
+        ]);
+
+        $this->lifecycle->process($subscription);
+
+        expect($subscription->refresh()->status)->toBe('restricted');
+        expect($subscription->restricted_at)->not->toBeNull();
     }
 
     /*

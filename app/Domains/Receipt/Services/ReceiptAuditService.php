@@ -73,7 +73,7 @@ class ReceiptAuditService
         $events = ReceiptAuditEvent::query()
             ->where('business_id', $businessId)
             ->orderBy('event_sequence')
-            ->get();
+            ->cursor();
 
         foreach ($events as $event) {
             $canonical = [

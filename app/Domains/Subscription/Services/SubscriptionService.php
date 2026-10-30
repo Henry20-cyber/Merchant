@@ -190,23 +190,15 @@ class SubscriptionService
             return false;
         }
 
-        if (
-            $subscription->status === 'grace_period' &&
-            $subscription->grace_period_ends_at !== null &&
-            $subscription->grace_period_ends_at->isPast()
-        ) {
-            return false;
+        if ($subscription->status === 'grace_period') {
+            return $subscription->grace_period_ends_at !== null
+                && $subscription->grace_period_ends_at->isFuture();
         }
 
-        if (
-            $subscription->status !== 'grace_period' &&
-            $subscription->current_period_end !== null &&
-            $subscription->current_period_end->isPast()
-        ) {
-            return false;
-        }
-
-        return true;
+        // Trial and paid subscriptions are time-bounded in this product.
+        // A missing period end is invalid data, not perpetual entitlement.
+        return $subscription->current_period_end !== null
+            && $subscription->current_period_end->isFuture();
     }
 
     /**

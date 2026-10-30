@@ -122,73 +122,24 @@ class PaystackWebhookController
 
         $webhookEvent = PaymentWebhookEvent::query()
             ->where('provider', 'paystack')
-            ->where(
-                'provider_event_id',
-                $providerEventId
-            )
+            ->where('provider_event_id', $providerEventId)
             ->first();
 
         if ($webhookEvent !== null) {
-            /*
-             * Successfully processed events are permanently
-             * idempotent.
-             */
             if ($webhookEvent->status === 'processed') {
-                return response()->json([
-                    'success' => true,
-                ]);
+                return response()->json(['success' => true]);
             }
 
-            /*
-             * Failed events are explicitly retryable.
-             */
-            if ($webhookEvent->status === 'failed') {
-                $webhookEvent->forceFill([
-                    'status' => 'received',
-                    'error_message' => null,
-                    'processed_at' => null,
-                ])->save();
+            // A conditional UPDATE acts as the retry lease. Only one worker
+            // can claim a failed or stale event at a time.
+            if (! $this->claimRetryableEvent($webhookEvent)) {
+                return response()->json(['success' => true]);
             }
 
-            /*
-             * A recent "received" event is assumed to be actively
-             * processed by another request.
-             *
-             * A stale "received" event is considered abandoned and
-             * will be reclaimed.
-             */
-            elseif ($webhookEvent->status === 'received') {
-                $staleAt = now()->subMinutes(
-                    self::STALE_EVENT_MINUTES
-                );
-
-                if (
-                    $webhookEvent->updated_at !== null &&
-                    $webhookEvent->updated_at->greaterThan(
-                        $staleAt
-                    )
-                ) {
-                    return response()->json([
-                        'success' => true,
-                    ]);
-                }
-
-                /*
-                 * The event is stale.
-                 *
-                 * Reclaim it for processing.
-                 */
-                $webhookEvent->forceFill([
-                    'status' => 'received',
-                    'error_message' => null,
-                    'processed_at' => null,
-                ])->save();
-            }
+            $webhookEvent->refresh();
         } else {
-            /*
-             * First delivery.
-             */
             try {
+                // A successful insert is the first delivery's atomic claim.
                 $webhookEvent = PaymentWebhookEvent::create([
                     'provider' => 'paystack',
                     'provider_event_id' => $providerEventId,
@@ -198,59 +149,26 @@ class PaystackWebhookController
                     'payload' => $payload,
                 ]);
             } catch (\Illuminate\Database\UniqueConstraintViolationException) {
-                /*
-                 * Another request won the race and inserted the
-                 * exact same event.
-                 *
-                 * Retrieve that row and let the normal idempotency
-                 * logic decide whether it should be processed.
-                 */
+                // Another delivery inserted the same deterministic event ID.
                 $webhookEvent = PaymentWebhookEvent::query()
                     ->where('provider', 'paystack')
-                    ->where(
-                        'provider_event_id',
-                        $providerEventId
-                    )
+                    ->where('provider_event_id', $providerEventId)
                     ->first();
 
                 if ($webhookEvent === null) {
-                    /*
-                     * The insert failed for an unexpected reason.
-                     * Let this become a server-side failure rather
-                     * than silently acknowledging the webhook.
-                     */
                     throw new \RuntimeException(
-                        'Unable to create Paystack webhook event.'
+                        'Unable to retrieve the existing Paystack webhook event.'
                     );
                 }
 
-                if ($webhookEvent->status === 'processed') {
-                    return response()->json([
-                        'success' => true,
-                    ]);
+                if (
+                    $webhookEvent->status === 'processed' ||
+                    ! $this->claimRetryableEvent($webhookEvent)
+                ) {
+                    return response()->json(['success' => true]);
                 }
 
-                /*
-                 * The winning request has already claimed the event.
-                 * Do not execute the business operation twice.
-                 */
-                if ($webhookEvent->status === 'received') {
-                    return response()->json([
-                        'success' => true,
-                    ]);
-                }
-
-                /*
-                 * If the winning record is failed, reset it and
-                 * allow this request to retry it.
-                 */
-                if ($webhookEvent->status === 'failed') {
-                    $webhookEvent->forceFill([
-                        'status' => 'received',
-                        'error_message' => null,
-                        'processed_at' => null,
-                    ])->save();
-                }
+                $webhookEvent->refresh();
             }
         }
 
@@ -522,6 +440,38 @@ class PaystackWebhookController
                     ),
             ], 422);
         }
+    }
+
+    /**
+     * Atomically claim a failed or abandoned webhook for retry.
+     *
+     * The conditional update prevents two deliveries from reclaiming the
+     * same row after both have read its previous status/timestamp.
+     */
+    private function claimRetryableEvent(PaymentWebhookEvent $event): bool
+    {
+        $query = PaymentWebhookEvent::query()->whereKey($event->getKey());
+
+        if ($event->status === 'failed') {
+            $query->where('status', 'failed');
+        } elseif ($event->status === 'received') {
+            $staleAt = now()->subMinutes(self::STALE_EVENT_MINUTES);
+
+            $query->where('status', 'received')
+                ->where(function ($staleQuery) use ($staleAt): void {
+                    $staleQuery->where('updated_at', '<=', $staleAt)
+                        ->orWhereNull('updated_at');
+                });
+        } else {
+            return false;
+        }
+
+        return $query->update([
+            'status' => 'received',
+            'error_message' => null,
+            'processed_at' => null,
+            'updated_at' => now(),
+        ]) === 1;
     }
 
     /**

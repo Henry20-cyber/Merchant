@@ -13,7 +13,7 @@
         .status { display: inline-block; margin: 14px 0 20px; padding: 6px 10px; border-radius: 999px; font-weight: 700; font-size: 13px; }
         .verified { color: #166534; background: #dcfce7; }
         .voided { color: #991b1b; background: #fee2e2; }
-        .integrity_check_failed { color: #92400e; background: #fef3c7; }
+        .integrity_check_failed, .not_issued { color: #92400e; background: #fef3c7; }
         dl { margin: 0; }
         .row { display: flex; justify-content: space-between; gap: 20px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
         dt { color: #6b7280; }
@@ -32,6 +32,9 @@
                 @break
             @case('voided')
                 Receipt marked void
+                @break
+            @case('not_issued')
+                Receipt has not been issued
                 @break
             @default
                 Integrity check failed

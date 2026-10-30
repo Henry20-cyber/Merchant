@@ -7,7 +7,6 @@ use App\Domains\Organization\Services\BusinessContextService;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
-use function getPermissionsTeamId;
 use function setPermissionsTeamId;
 
 class SetCurrentBusiness
@@ -16,6 +15,10 @@ class SetCurrentBusiness
         Request $request,
         Closure $next
     ): Response {
+        // Never allow a permission-team value from an earlier request
+        // to leak into this request when no business context is resolved.
+        setPermissionsTeamId(null);
+
         $user = $request->user();
 
         if (! $user) {
@@ -82,12 +85,6 @@ class SetCurrentBusiness
                 $business
             );
         }
-
-        logger()->debug('MerchantOS permission team', [
-            'user_id' => $user->id,
-            'team_id' => getPermissionsTeamId(),
-            'business_context' => $business?->id,
-        ]);
 
         return $next($request);
     }

@@ -8,7 +8,7 @@ class ResetPasswordRequest extends FormRequest {
         return [
             'token'=>['required','string'],
             'email'=>['required','email','max:255'],
-            'password'=>['required','confirmed',Password::min(8)],
+            'password'=>['required','confirmed',Password::default()],
             'password_confirmation'=>['required','string'],
         ];
     }

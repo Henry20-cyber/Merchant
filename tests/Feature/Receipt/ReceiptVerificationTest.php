@@ -71,7 +71,8 @@ class ReceiptVerificationTest extends TestCase
 
         $this->getJson('/api/receipts/verify/' . $receipt->verification_token)
             ->assertOk()
-            ->assertJsonPath('data.verification_status', 'integrity_check_failed');
+            ->assertJsonPath('data.verification_status', 'integrity_check_failed')
+            ->assertJsonPath('data.verified', false);
     }
 
     public function test_unknown_verification_token_does_not_disclose_receipt_data(): void
@@ -120,6 +121,7 @@ class ReceiptVerificationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.verification_status', 'verified')
+            ->assertJsonPath('data.verified', true)
             ->assertJsonPath('data.receipt_number', $receipt->receipt_number);
     }
 

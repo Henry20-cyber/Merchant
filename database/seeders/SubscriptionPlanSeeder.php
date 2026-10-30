@@ -33,7 +33,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => false,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -59,7 +58,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => false,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -85,7 +83,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => false,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -111,7 +108,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => true,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -137,7 +133,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => false,
                     'receipts' => true,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -163,7 +158,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => true,
                     'receipts' => true,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
             [
@@ -189,7 +183,6 @@ class SubscriptionPlanSeeder extends Seeder
                     'advanced_rbac' => true,
                     'receipts' => true,
                 ],
-                'paystack_plan_code' => null,
                 'is_active' => true,
             ],
         ];

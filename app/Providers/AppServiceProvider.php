@@ -44,27 +44,79 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
 
         RateLimiter::for('login', function (Request $request) {
-            $email = Str::lower(
-                Str::ascii(
-                    (string) $request->input('email')
-                )
-            );
+            // LoginRequest accepts `identifier`, not `email`.
+            $identifier = Str::lower(Str::ascii(trim(
+                (string) $request->input('identifier', '')
+            )));
+
+            $identifierKey = $identifier !== ''
+                ? $identifier
+                : 'missing:' . $request->ip();
 
             return [
-                Limit::perMinute(5)
-                    ->by(
-                        'login-email:' .
-                        $email .
-                        '|ip:' .
-                        $request->ip()
-                    ),
-
-                Limit::perMinute(20)
-                    ->by(
-                        'login-ip:' .
-                        $request->ip()
-                    ),
+                Limit::perMinute(5)->by(
+                    'login-identifier:' . $identifierKey
+                ),
+                Limit::perMinute(20)->by('login-ip:' . $request->ip()),
             ];
+        });
+
+        RateLimiter::for('register', function (Request $request) {
+            $email = Str::lower(trim((string) $request->input('owner.email', '')));
+
+            $limits = [
+                Limit::perHour(5)->by('register-ip:' . $request->ip()),
+            ];
+
+            if ($email !== '') {
+                $limits[] = Limit::perHour(5)->by('register-email:' . $email);
+            }
+
+            return $limits;
+        });
+
+        RateLimiter::for('employee-registration', function (Request $request) {
+            $email = Str::lower(trim((string) $request->input('email', '')));
+            $merchantId = Str::upper(trim((string) $request->input('merchant_id', '')));
+
+            $limits = [
+                Limit::perHour(5)->by('employee-register-ip:' . $request->ip()),
+            ];
+
+            if ($email !== '') {
+                $limits[] = Limit::perHour(5)->by('employee-register-email:' . $email);
+            }
+
+            if ($merchantId !== '') {
+                $limits[] = Limit::perHour(10)->by(
+                    'employee-register-merchant:' . $merchantId . '|ip:' . $request->ip()
+                );
+            }
+
+            return $limits;
+        });
+
+        // Authenticated application traffic: generous enough for normal POS use,
+        // but bounded per account and source IP.
+        RateLimiter::for('api', function (Request $request) {
+            $userId = $request->user()?->getAuthIdentifier();
+
+            return $userId
+                ? [
+                    Limit::perMinute(180)->by('api-user:' . $userId),
+                    Limit::perMinute(1200)->by('api-ip:' . $request->ip()),
+                ]
+                : Limit::perMinute(60)->by('api-ip:' . $request->ip());
+        });
+
+        RateLimiter::for('public-api', function (Request $request) {
+            return Limit::perMinute(60)->by('public-api-ip:' . $request->ip());
+        });
+
+        // Paystack retries are expected; allow bursts without leaving the
+        // webhook endpoint unlimited. Signature verification remains mandatory.
+        RateLimiter::for('paystack-webhook', function (Request $request) {
+            return Limit::perMinute(300)->by('paystack-webhook-ip:' . $request->ip());
         });
     }
 

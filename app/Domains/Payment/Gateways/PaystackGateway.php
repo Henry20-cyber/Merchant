@@ -42,6 +42,8 @@ class PaystackGateway implements PaymentGateway
         try {
             $response = Http::withToken($this->secretKey)
                 ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(15)
                 ->post(
                     $this->baseUrl . '/transaction/initialize',
                     [
@@ -99,6 +101,8 @@ class PaystackGateway implements PaymentGateway
         try {
             $response = Http::withToken($this->secretKey)
                 ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(15)
                 ->get(
                     $this->baseUrl .
                         '/transaction/verify/' .
@@ -164,6 +168,8 @@ class PaystackGateway implements PaymentGateway
         try {
             $response = Http::withToken($this->secretKey)
                 ->acceptJson()
+                ->connectTimeout(5)
+                ->timeout(15)
                 ->post(
                     $this->baseUrl . '/subscription',
                     [
@@ -238,6 +244,8 @@ public function disableSubscription(
     try {
         $response = Http::withToken($this->secretKey)
             ->acceptJson()
+            ->connectTimeout(5)
+            ->timeout(15)
             ->post(
                 $this->baseUrl . '/subscription/disable',
                 [
@@ -278,6 +286,8 @@ public function enableSubscription(
     try {
         $response = Http::withToken($this->secretKey)
             ->acceptJson()
+            ->connectTimeout(5)
+            ->timeout(15)
             ->post(
                 $this->baseUrl . '/subscription/enable',
                 [

@@ -56,7 +56,7 @@ class SubscriptionLifecycleService
              */
             if ($subscription->status === 'trial') {
                 if (
-                    $subscription->current_period_end !== null &&
+                    $subscription->current_period_end === null ||
                     $subscription->current_period_end->isPast()
                 ) {
                     $subscription->forceFill([
@@ -80,7 +80,7 @@ class SubscriptionLifecycleService
              */
             if ($subscription->status === 'active') {
                 if (
-                    $subscription->current_period_end !== null &&
+                    $subscription->current_period_end === null ||
                     $subscription->current_period_end->isPast()
                 ) {
                     $subscription->forceFill(
@@ -123,7 +123,7 @@ class SubscriptionLifecycleService
              */
             if ($subscription->status === 'grace_period') {
                 if (
-                    $subscription->grace_period_ends_at !== null &&
+                    $subscription->grace_period_ends_at === null ||
                     $subscription->grace_period_ends_at->isPast()
                 ) {
                     /*

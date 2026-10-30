@@ -279,6 +279,32 @@ class SubscriptionServiceTest extends TestCase
         )->toBeTrue();
     }
 
+    public function test_active_subscription_without_period_end_is_not_usable(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = $this->service->createTrial($business, $plan);
+        $subscription->forceFill([
+            'status' => 'active',
+            'current_period_end' => null,
+        ])->save();
+
+        expect($this->service->isUsable($subscription->fresh()))->toBeFalse();
+    }
+
+    public function test_grace_period_without_end_date_is_not_usable(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = $this->service->createTrial($business, $plan);
+        $subscription->forceFill([
+            'status' => 'grace_period',
+            'grace_period_ends_at' => null,
+        ])->save();
+
+        expect($this->service->isUsable($subscription->fresh()))->toBeFalse();
+    }
+
     public function test_restricted_subscription_is_not_usable(): void
     {
         $business = $this->createBusiness();
