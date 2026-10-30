@@ -11,6 +11,9 @@ class PermissionCatalog
             'business.view',
             'business.update',
 
+            // Subscription
+            'subscription.manage',
+
             // Users
             'users.view',
             'users.invite',
