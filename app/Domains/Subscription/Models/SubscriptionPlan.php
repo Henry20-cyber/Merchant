@@ -3,7 +3,6 @@
 namespace App\Domains\Subscription\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
-use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -25,7 +24,6 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $paystack_plan_code
  * @property bool $is_active
  * @property-read \Illuminate\Database\Eloquent\Collection<int, Subscription> $subscriptions
- * @use HasFactory<Factory<static>>
  */
 class SubscriptionPlan extends Model
 {
@@ -70,7 +68,9 @@ class SubscriptionPlan extends Model
     /**
      * A plan can be assigned to many subscriptions.
      */
-    /** @return HasMany<Subscription, $this> */
+    /**
+     * @return HasMany<Subscription, $this>
+     */
     public function subscriptions(): HasMany
     {
         return $this->hasMany(
