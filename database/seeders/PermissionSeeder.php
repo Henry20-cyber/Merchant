@@ -17,6 +17,9 @@ class PermissionSeeder extends Seeder
             'business.view',
             'business.update',
 
+            // Subscription
+            'subscription.manage',
+
             // Users
             'users.view',
             'users.invite',
