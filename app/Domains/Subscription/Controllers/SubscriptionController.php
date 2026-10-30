@@ -138,8 +138,8 @@ class SubscriptionController
         $enabled = $request->boolean('enabled');
 
         $subscription = $enabled
-            ? $this->billingService->enableRenewal($subscription)
-            : $this->billingService->disableRenewal($subscription);
+            ? $this->billingService->enableRenewal($subscription, $request->user())
+            : $this->billingService->disableRenewal($subscription, $request->user());
 
         return response()->json([
             'success' => true,
@@ -211,6 +211,7 @@ class SubscriptionController
             ->firstOrFail();
 
         $result = $this->checkoutService->checkout(
+            $request->user(),
             $business,
             $plan,
             $request->validated('email'),
