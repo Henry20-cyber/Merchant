@@ -18,7 +18,9 @@ class SubscriptionPaymentFailureService
      *
      * This operation is intentionally idempotent.
      */
-    /** @param array<string, mixed> $data */
+    /**
+     * @param array<string, mixed> $data
+     */
     public function fail(array $data): Subscription
     {
         return DB::transaction(function () use ($data) {
