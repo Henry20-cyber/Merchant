@@ -109,6 +109,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
 
         $result = $service->checkout(
             $actor,
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -162,6 +163,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -178,6 +180,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         $gateway->shouldNotReceive('initialize');
 
         expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -203,6 +206,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         $gateway->shouldNotReceive('initialize');
 
         expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -224,6 +228,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         expect(fn() => $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -247,6 +252,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         expect(fn() => $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -279,6 +285,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -315,6 +322,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
         );
 
         expect(fn() => $service->checkout(
+            $actor,
             $business,
             $plan,
             'merchant@example.com'
@@ -361,6 +369,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
 
     $service->checkout(
         $actor,
+        $actor,
         $business,
         $plan,
         'merchant@example.com'
@@ -398,6 +407,7 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
     );
 
     $service->checkout(
+        $actor,
         $business,
         $plan,
         'merchant@example.com'
