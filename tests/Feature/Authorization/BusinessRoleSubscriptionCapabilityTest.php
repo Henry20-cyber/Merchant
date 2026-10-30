@@ -170,6 +170,57 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
         $response->assertForbidden();
     }
 
+
+    public function test_owner_role_receives_subscription_management_permission(): void
+    {
+        [$owner, $business] = $this->ownerWithBusiness();
+
+        setPermissionsTeamId($business->id);
+        $owner->unsetRelation('roles');
+        $owner->unsetRelation('permissions');
+
+        $this->assertTrue($owner->can('subscription.manage'));
+    }
+
+    public function test_manager_cannot_manage_subscription_billing(): void
+    {
+        [$owner, $business] = $this->ownerWithBusiness();
+
+        $manager = User::factory()->create();
+
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $manager->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+
+        app(RoleService::class)->assignRole(
+            $manager,
+            'Manager',
+            $business->id
+        );
+
+        $this->actingAs($manager);
+
+        $checkout = $this
+            ->withBusiness($business)
+            ->postJson('/api/businesses/current/subscription/checkout', [
+                'plan_id' => (string) \Illuminate\Support\Str::uuid(),
+                'email' => 'manager@example.com',
+            ]);
+
+        $checkout->assertForbidden();
+
+        $renewal = $this
+            ->withBusiness($business)
+            ->putJson('/api/businesses/current/subscription/auto-renew', [
+                'enabled' => false,
+            ]);
+
+        $renewal->assertForbidden();
+    }
+
     private function ownerWithBusiness(): array
     {
         $business = Business::factory()->create();

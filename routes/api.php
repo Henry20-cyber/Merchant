@@ -842,12 +842,18 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::post('/businesses/current/subscription/checkout', [
         SubscriptionController::class,
         'checkout',
-    ])->middleware('business.context');
+    ])->middleware([
+        'business.context',
+        'permission:subscription.manage',
+    ]);
 
     Route::put('/businesses/current/subscription/auto-renew', [
         SubscriptionController::class,
         'autoRenew',
-    ])->middleware('business.context');
+    ])->middleware([
+        'business.context',
+        'permission:subscription.manage',
+    ]);
 
     /*
     |--------------------------------------------------------------------------

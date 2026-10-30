@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class PermissionSeeder extends Seeder
 {
@@ -16,6 +17,9 @@ class PermissionSeeder extends Seeder
             // Business
             'business.view',
             'business.update',
+
+            // Subscription
+            'subscription.manage',
 
             // Users
             'users.view',
@@ -114,5 +118,27 @@ class PermissionSeeder extends Seeder
                 'guard_name' => 'web',
             ]);
         }
+
+        // Backfill the new billing permission onto existing system Owner
+        // roles as well as newly provisioned businesses.
+        $subscriptionPermission = Permission::query()
+            ->where('name', 'subscription.manage')
+            ->where('guard_name', 'web')
+            ->firstOrFail();
+
+        Role::query()
+            ->where('name', 'Owner')
+            ->where('guard_name', 'web')
+            ->where('is_system', true)
+            ->get()
+            ->each(function (Role $role) use ($subscriptionPermission): void {
+                setPermissionsTeamId($role->team_id);
+                $role->givePermissionTo($subscriptionPermission);
+            });
+
+        setPermissionsTeamId(null);
+
+        app(\\Spatie\\Permission\\PermissionRegistrar::class)
+            ->forgetCachedPermissions();
     }
 }

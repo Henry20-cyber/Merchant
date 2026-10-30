@@ -34,9 +34,33 @@ class BusinessContextService
 
     /**
      * Get the current business for the authenticated user.
+     *
+     * A business resolved by SetCurrentBusiness middleware is authoritative
+     * for the current request. It must take precedence over session state,
+     * otherwise downstream services could act on a different tenant than
+     * the one used to establish the Spatie permission-team context.
      */
     public function current(User $user): ?Business
     {
+        $requestBusiness = request()->attributes->get('current_business');
+
+        if ($requestBusiness !== null) {
+            if (! $requestBusiness instanceof Business) {
+                return null;
+            }
+
+            // Re-check active membership at the service boundary. Never
+            // fall back to a different session tenant if this check fails.
+            return Business::query()
+                ->whereKey($requestBusiness->getKey())
+                ->whereHas('memberships', function ($query) use ($user) {
+                    $query
+                        ->where('user_id', $user->id)
+                        ->where('status', 'active');
+                })
+                ->first();
+        }
+
         $businessId = session('current_business_id');
 
         if (! $businessId) {
