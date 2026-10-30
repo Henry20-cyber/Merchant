@@ -2,21 +2,21 @@
 
 namespace App\Domains\Organization\Models;
 
+use App\Domains\Catalog\Models\Category;
+use App\Domains\Customer\Models\Customer;
+use App\Domains\Payment\Models\Payment;
+use App\Domains\Product\Models\Product;
+use App\Domains\Product\Models\ProductBarcode;
+use App\Domains\Service\Models\Service;
+use App\Domains\Subscription\Models\Subscription;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use App\Domains\Subscription\Models\Subscription;
-use App\Domains\Payment\Models\Payment;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
-use App\Domains\Product\Models\Product;
-use App\Domains\Product\Models\ProductBarcode;
-use App\Domains\Customer\Models\Customer;
-use App\Domains\Catalog\Models\Category;
-use App\Domains\Service\Models\Service;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Business extends Model
@@ -150,20 +150,17 @@ class Business extends Model
  */
 public function payments(): HasMany
 {
-    return $this->hasMany(
-        Payment::class
-    );
+    return $this->hasMany(Payment::class);
 }
 
 /**
- * Business has one current MerchantOS subscription.
+ * Business has one current Account subscription.
+ *
+ * @return HasOne<Subscription, $this>
  */
-/** @return HasOne<Subscription, $this> */
 public function subscription(): HasOne
 {
-    return $this->hasOne(
-        Subscription::class
-    );
+    return $this->hasOne(Subscription::class);
 }
 
 /**
