@@ -182,7 +182,7 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
         $this->assertTrue($owner->can('subscription.manage'));
     }
 
-    public function test_manager_cannot_manage_subscription_billing(): void
+    public function test_manager_receives_subscription_management_permission_and_can_reach_billing_routes(): void
     {
         [$owner, $business] = $this->ownerWithBusiness();
 
@@ -201,6 +201,11 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
             $business->id
         );
 
+        setPermissionsTeamId($business->id);
+        $manager->unsetRelation('roles');
+        $manager->unsetRelation('permissions');
+        $this->assertTrue($manager->can('subscription.manage'));
+
         $this->actingAs($manager);
 
         $checkout = $this
@@ -210,7 +215,7 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
                 'email' => 'manager@example.com',
             ]);
 
-        $checkout->assertForbidden();
+        $checkout->assertUnprocessable();
 
         $renewal = $this
             ->withBusiness($business)
@@ -218,7 +223,7 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
                 'enabled' => false,
             ]);
 
-        $renewal->assertForbidden();
+        $renewal->assertNotFound();
     }
 
     private function ownerWithBusiness(): array
