@@ -88,7 +88,6 @@ class SubscriptionCheckoutServiceTest extends TestCase
     {
         $business = $this->makeBusiness();
 
-        $actor = $this->makeBillingActor($business);
         $otherBusiness = $this->makeBusiness();
         $actor = $this->makeBillingActor($otherBusiness);
         $plan = $this->makePlan();
@@ -110,7 +109,6 @@ class SubscriptionCheckoutServiceTest extends TestCase
     {
         $business = $this->makeBusiness();
 
-        $actor = $this->makeBillingActor($business);
         $actor = $this->makeBillingActor($business);
 
         $plan = $this->makePlan();
