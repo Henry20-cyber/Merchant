@@ -104,6 +104,14 @@ class RoleManagementService
     private function validatePermissions(
         array $permissionNames
     ): array {
+        if (in_array('subscription.manage', $permissionNames, true)) {
+            throw ValidationException::withMessages([
+                'permissions' => [
+                    'Subscription billing management is reserved for the default Owner and Manager roles.',
+                ],
+            ]);
+        }
+
         $invalidPermissions = array_values(
             array_diff(
                 $permissionNames,
