@@ -68,6 +68,29 @@ class SubscriptionBillingServiceTest extends TestCase
         expect($result->cancelled_at)->toBeNull();
     }
 
+
+    public function test_member_without_billing_permission_cannot_change_renewal(): void
+    {
+        $business = Business::factory()->create();
+        $actor = User::factory()->create();
+        BusinessUser::create([
+            'business_id' => $business->id,
+            'user_id' => $actor->id,
+            'status' => 'active',
+            'joined_at' => now(),
+        ]);
+        $plan = $this->createPaidPlan();
+        $subscription = $this->createSubscription($business, $plan);
+
+        $gateway = Mockery::mock(PaymentGateway::class);
+        $gateway->shouldNotReceive('disableSubscription');
+
+        expect(fn () => app(SubscriptionBillingService::class, [
+            'paymentGateway' => $gateway,
+        ])->disableRenewal($subscription, $actor))
+            ->toThrow(\\Symfony\\Component\\HttpKernel\\Exception\\AccessDeniedHttpException::class);
+    }
+
     public function test_free_plan_cannot_change_recurring_billing(): void
     {
         $business = Business::factory()->create();
