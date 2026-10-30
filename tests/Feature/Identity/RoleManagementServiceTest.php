@@ -146,6 +146,26 @@ class RoleManagementServiceTest extends TestCase
         ]);
     }
 
+
+    public function test_custom_roles_cannot_receive_subscription_management_permission(): void
+    {
+        $business = Business::factory()->create();
+        $user = $this->createBusinessMember($business);
+        $this->createPermissions();
+
+        expect(fn () => app(RoleManagementService::class)->create(
+            $user,
+            $business->id,
+            'Billing Delegate',
+            ['business.view', 'subscription.manage']
+        ))->toThrow(\Illuminate\Validation\ValidationException::class);
+
+        expect(Role::query()
+            ->where('team_id', $business->id)
+            ->where('name', 'Billing Delegate')
+            ->exists())->toBeFalse();
+    }
+
     private function createBusinessMember(
         Business $business
     ): User {
