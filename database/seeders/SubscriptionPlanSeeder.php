@@ -13,7 +13,7 @@ class SubscriptionPlanSeeder extends Seeder
             [
                 'name' => 'Free',
                 'slug' => 'free',
-                'description' => 'A free MerchantOS plan for small businesses getting started.',
+                'description' => 'A free Account plan for small businesses getting started.',
                 'price' => 0,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',
@@ -39,7 +39,7 @@ class SubscriptionPlanSeeder extends Seeder
             [
                 'name' => 'Starter',
                 'slug' => 'low-monthly',
-                'description' => 'For small businesses getting started with MerchantOS.',
+                'description' => 'For small businesses getting started with Account.',
                 'price' => 3000,
                 'currency' => 'NGN',
                 'billing_interval' => 'monthly',

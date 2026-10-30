@@ -1,4 +1,4 @@
-# MerchantOS
+# Account
 
 A modern, multi-tenant ERP platform for African businesses.
 

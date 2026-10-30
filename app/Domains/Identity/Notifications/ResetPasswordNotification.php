@@ -12,9 +12,9 @@ class ResetPasswordNotification extends Notification {
             . '/reset-password?token=' . urlencode($this->token)
             . '&email=' . urlencode($notifiable->getEmailForPasswordReset());
         return (new MailMessage)
-            ->subject('Reset your MerchantOS password')
+            ->subject('Reset your Account password')
             ->greeting('Hello ' . ($notifiable->name ?? 'there') . ',')
-            ->line('We received a request to reset your MerchantOS password.')
+            ->line('We received a request to reset your Account password.')
             ->action('Reset Password', $url)
             ->line('This link expires according to your password reset configuration.')
             ->line('If you did not request this, you can safely ignore this email.');

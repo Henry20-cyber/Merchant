@@ -29,12 +29,12 @@ class EnsureSubscriptionIsUsable
 
         /*
          * No subscription means the business has not
-         * completed its MerchantOS billing setup.
+         * completed its Account billing setup.
          */
         if (! $subscription) {
             return response()->json([
                 'success' => false,
-                'message' => 'A subscription is required to access MerchantOS.',
+                'message' => 'A subscription is required to access Account.',
                 'code' => 'SUBSCRIPTION_REQUIRED',
             ], 402);
         }
@@ -46,7 +46,7 @@ class EnsureSubscriptionIsUsable
         if (! $service->isUsable($subscription)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Your subscription does not currently allow access to MerchantOS.',
+                'message' => 'Your subscription does not currently allow access to Account.',
                 'code' => 'SUBSCRIPTION_INACTIVE',
                 'subscription_status' => $subscription->status,
             ], 402);

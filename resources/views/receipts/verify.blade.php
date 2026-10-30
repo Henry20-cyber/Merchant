@@ -23,7 +23,7 @@
 </head>
 <body>
 <main>
-    <div class="brand">MerchantOS · Receipt verification</div>
+    <div class="brand">Account · Receipt verification</div>
     <h1>{{ $verification['business_name'] ?: 'Business receipt' }}</h1>
     <div class="status {{ $verification['verification_status'] }}">
         @switch($verification['verification_status'])

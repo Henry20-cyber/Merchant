@@ -250,7 +250,7 @@ td:nth-child(3) {
 
     <div class="header">
         <div class="business-name">
-            {{ $business['name'] ?? 'MerchantOS' }}
+            {{ $business['name'] ?? 'Account' }}
         </div>
 
         @if(!empty($business['address']))
@@ -506,7 +506,7 @@ td:nth-child(3) {
 
     <div class="footer">
         <div>Thanks for patronising us!</div>
-        <div>Powered by MerchantOS</div>
+        <div>Powered by Account</div>
     </div>
 
 </div>
