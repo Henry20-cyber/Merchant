@@ -185,7 +185,7 @@ class SubscriptionBillingService
             ->where('user_id', $actor->id)
             ->where('status', 'active')
             ->lockForUpdate()
-            ->exists();
+            ->first();
 
         if (! $isActiveMember) {
             throw new AccessDeniedHttpException(
