@@ -138,7 +138,7 @@ class PermissionSeeder extends Seeder
 
         setPermissionsTeamId(null);
 
-        app(\\Spatie\\Permission\\PermissionRegistrar::class)
+        app(\Spatie\Permission\PermissionRegistrar::class)
             ->forgetCachedPermissions();
     }
 }
