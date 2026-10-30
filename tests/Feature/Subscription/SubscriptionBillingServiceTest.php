@@ -23,6 +23,8 @@ class SubscriptionBillingServiceTest extends TestCase
     public function test_disabling_renewal_keeps_subscription_active(): void
     {
         $business = Business::factory()->create();
+
+        $actor = $this->makeBillingActor($business);
         $actor = $this->makeBillingActor($business);
         $plan = $this->createPaidPlan();
         $subscription = $this->createSubscription($business, $plan);
@@ -46,6 +48,8 @@ class SubscriptionBillingServiceTest extends TestCase
     public function test_enabling_renewal_restores_auto_renewal(): void
     {
         $business = Business::factory()->create();
+
+        $actor = $this->makeBillingActor($business);
         $plan = $this->createPaidPlan();
         $subscription = $this->createSubscription(
             $business,
@@ -72,6 +76,8 @@ class SubscriptionBillingServiceTest extends TestCase
     public function test_member_without_billing_permission_cannot_change_renewal(): void
     {
         $business = Business::factory()->create();
+
+        $actor = $this->makeBillingActor($business);
         $actor = User::factory()->create();
         BusinessUser::create([
             'business_id' => $business->id,
@@ -94,6 +100,8 @@ class SubscriptionBillingServiceTest extends TestCase
     public function test_free_plan_cannot_change_recurring_billing(): void
     {
         $business = Business::factory()->create();
+
+        $actor = $this->makeBillingActor($business);
         $plan = SubscriptionPlan::factory()->create([
             'name' => 'Free',
             'slug' => 'free',
