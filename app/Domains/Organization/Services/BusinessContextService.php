@@ -1,12 +1,12 @@
 <?php
 
-namespace App\Domains\Organization\Services;
+namespace App\\Domains\\Organization\\Services;
 
-use App\Domains\Organization\Models\Business;
-use App\Domains\Organization\Models\BusinessUser;
-use App\Models\User;
-use Illuminate\Validation\ValidationException;
-use Illuminate\Database\Eloquent\Collection;
+use App\\Domains\\Organization\\Models\\Business;
+use App\\Domains\\Organization\\Models\\BusinessUser;
+use App\\Models\\User;
+use Illuminate\\Validation\\ValidationException;
+use Illuminate\\Database\\Eloquent\\Collection;
 
 class BusinessContextService
 {
@@ -34,9 +34,27 @@ class BusinessContextService
 
     /**
      * Get the current business for the authenticated user.
+     *
+     * The business-context middleware resolves and validates X-Business-ID
+     * before downstream controllers run. Prefer that request-scoped context
+     * over the session so a validated header cannot be silently replaced by
+     * a different business ID stored in the user's session.
      */
     public function current(User $user): ?Business
     {
+        $requestBusiness = request()->attributes->get('current_business');
+
+        if ($requestBusiness instanceof Business) {
+            return Business::query()
+                ->whereKey($requestBusiness->getKey())
+                ->whereHas('memberships', function ($query) use ($user) {
+                    $query
+                        ->where('user_id', $user->id)
+                        ->where('status', 'active');
+                })
+                ->first();
+        }
+
         $businessId = session('current_business_id');
 
         if (! $businessId) {
