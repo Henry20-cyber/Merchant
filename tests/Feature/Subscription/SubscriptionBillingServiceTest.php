@@ -14,6 +14,7 @@ use App\Domains\Subscription\Services\SubscriptionBillingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Mockery;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Tests\TestCase;
 
 class SubscriptionBillingServiceTest extends TestCase
@@ -24,7 +25,6 @@ class SubscriptionBillingServiceTest extends TestCase
     {
         $business = Business::factory()->create();
 
-        $actor = $this->makeBillingActor($business);
         $actor = $this->makeBillingActor($business);
         $plan = $this->createPaidPlan();
         $subscription = $this->createSubscription($business, $plan);
@@ -72,12 +72,10 @@ class SubscriptionBillingServiceTest extends TestCase
         expect($result->cancelled_at)->toBeNull();
     }
 
-
     public function test_member_without_billing_permission_cannot_change_renewal(): void
     {
         $business = Business::factory()->create();
 
-        $actor = $this->makeBillingActor($business);
         $actor = User::factory()->create();
         BusinessUser::create([
             'business_id' => $business->id,
@@ -94,7 +92,7 @@ class SubscriptionBillingServiceTest extends TestCase
         expect(fn () => app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
         ])->disableRenewal($subscription, $actor))
-            ->toThrow(\\Symfony\\Component\\HttpKernel\\Exception\\AccessDeniedHttpException::class);
+            ->toThrow(AccessDeniedHttpException::class);
     }
 
     public function test_free_plan_cannot_change_recurring_billing(): void
@@ -120,7 +118,6 @@ class SubscriptionBillingServiceTest extends TestCase
         ])->disableRenewal($subscription, $actor))
             ->toThrow(ValidationException::class);
     }
-
 
     private function makeBillingActor(Business $business): User
     {
