@@ -4,10 +4,21 @@ namespace App\Domains\Subscription\Models;
 
 use App\Domains\Organization\Models\Business;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string $id
+ * @property string $business_id
+ * @property string $metric
+ * @property int $quantity
+ * @property \Illuminate\Support\Carbon $period_start
+ * @property \Illuminate\Support\Carbon $period_end
+ * @property-read Business|null $business
+ * @use HasFactory<Factory<static>>
+ */
 class UsageRecord extends Model
 {
     use HasUuids;
@@ -37,6 +48,7 @@ class UsageRecord extends Model
     /**
      * Usage record belongs to a business.
      */
+    /** @return BelongsTo<Business, $this> */
     public function business(): BelongsTo
     {
         return $this->belongsTo(
