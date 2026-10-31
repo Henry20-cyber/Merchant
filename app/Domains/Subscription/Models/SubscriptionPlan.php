@@ -2,11 +2,30 @@
 
 namespace App\Domains\Subscription\Models;
 
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property string $id
+ * @property string $name
+ * @property string $slug
+ * @property string|null $description
+ * @property numeric-string|float $price
+ * @property string $currency
+ * @property string $billing_interval
+ * @property int|null $customer_limit
+ * @property int|null $user_limit
+ * @property int|null $branch_limit
+ * @property int|null $transaction_daily_limit
+ * @property int|null $transaction_monthly_limit
+ * @property array<string, mixed>|null $features
+ * @property string|null $paystack_plan_code
+ * @property bool $is_active
+ * @property-read Collection<int, Subscription> $subscriptions
+ */
 class SubscriptionPlan extends Model
 {
     use HasUuids;
@@ -49,6 +68,8 @@ class SubscriptionPlan extends Model
 
     /**
      * A plan can be assigned to many subscriptions.
+     *
+     * @return HasMany<Subscription, $this>
      */
     public function subscriptions(): HasMany
     {

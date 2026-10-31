@@ -7,7 +7,17 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property string $id
+ * @property string $business_id
+ * @property string $metric
+ * @property int $quantity
+ * @property Carbon $period_start
+ * @property Carbon $period_end
+ * @property-read Business|null $business
+ */
 class UsageRecord extends Model
 {
     use HasUuids;
@@ -36,6 +46,8 @@ class UsageRecord extends Model
 
     /**
      * Usage record belongs to a business.
+     *
+     * @return BelongsTo<Business, $this>
      */
     public function business(): BelongsTo
     {

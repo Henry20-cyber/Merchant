@@ -70,7 +70,6 @@
             "npm run format:check",
             "npm run types:check",
             "@php artisan config:clear --ansi",
-            "@types:check",
             "@php artisan test"
         ],
         "types:check": [

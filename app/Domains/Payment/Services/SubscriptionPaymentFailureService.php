@@ -17,6 +17,8 @@ class SubscriptionPaymentFailureService
      * restricted, and suspended states.
      *
      * This operation is intentionally idempotent.
+     *
+     * @param array<string, mixed> $data
      */
     public function fail(array $data): Subscription
     {
