@@ -116,7 +116,13 @@ class SubscriptionRenewalService
                 (string) $plan->price
             );
 
-            if ((int) $amount !== $expectedAmount) {
+            // Paystack expresses amounts in minor units. Accept only an
+            // integer or a digit-only integer string; PHP's loose integer
+            // cast would otherwise accept malformed values such as "12000x".
+            if (
+                ! (is_int($amount) || (is_string($amount) && preg_match('/\A\d+\z/D', $amount) === 1)) ||
+                (int) $amount !== $expectedAmount
+            ) {
                 throw ValidationException::withMessages([
                     'amount' =>
                         'Recurring payment amount does not match the subscription plan.',
@@ -181,6 +187,16 @@ class SubscriptionRenewalService
             ]);
 
             /*
+             * A provider may deliver a delayed successful charge after the
+             * customer cancelled or the subscription was suspended. Record
+             * the real payment above, but never silently resurrect a terminal
+             * subscription or turn auto-renew back on.
+             */
+            if (in_array($subscription->status, ['cancelled', 'suspended'], true)) {
+                return $payment->refresh();
+            }
+
+            /*
              * Establish the next billing period.
              *
              * If the previous period is still in the future,
@@ -205,6 +221,8 @@ class SubscriptionRenewalService
              * whether the subscription had entered past_due,
              * grace_period, or restricted state.
              */
+            $renewalEnabled = (bool) $subscription->auto_renew;
+
             $subscription->forceFill([
                 'status' => 'active',
 
@@ -220,13 +238,16 @@ class SubscriptionRenewalService
                 'restricted_at' =>
                     null,
 
-                'cancelled_at' =>
-                    null,
+                // A successful charge pays for the next period; it does not
+                // revoke a customer's previously recorded non-renewal choice.
+                'cancelled_at' => $renewalEnabled
+                    ? null
+                    : $subscription->cancelled_at,
 
                 'ended_at' =>
                     null,
 
-                'auto_renew' => true,
+                'auto_renew' => $renewalEnabled,
             ])->save();
 
             return $payment->refresh();
@@ -238,27 +259,17 @@ class SubscriptionRenewalService
      */
     private function toMinorUnits(string $amount): int
     {
-        $normalized = number_format(
-            (float) $amount,
-            2,
-            '.',
-            ''
-        );
+        $amount = trim($amount);
 
-        [$whole, $decimal] = array_pad(
-            explode('.', $normalized, 2),
-            2,
-            '00'
-        );
+        if (! preg_match('/^(\\d+)(?:\\.(\\d{1,2}))?$/', $amount, $matches)) {
+            throw ValidationException::withMessages([
+                'amount' => 'The subscription plan amount is invalid.',
+            ]);
+        }
 
-        return (
-            ((int) $whole * 100)
-            +
-            (int) str_pad(
-                substr($decimal, 0, 2),
-                2,
-                '0'
-            )
-        );
+        $whole = (int) $matches[1];
+        $fraction = (int) str_pad($matches[2] ?? '', 2, '0');
+
+        return ($whole * 100) + $fraction;
     }
 }

@@ -31,7 +31,9 @@ class SubscriptionLifecycleService
             /*
              * Always work with the latest database state.
              */
-            $subscription->refresh();
+            $subscription = Subscription::query()
+                ->lockForUpdate()
+                ->findOrFail($subscription->getKey());
 
             /*
              * Terminal states require no lifecycle processing.

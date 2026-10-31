@@ -60,4 +60,67 @@ class AuthenticationLifecycleTest extends TestCase
             ->assertOk()
             ->assertJsonPath('user.id', $user->id);
     }
+
+    public function test_fifth_failed_login_attempt_locks_identifier_for_fifteen_minutes(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('correct-password'),
+        ]);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $response = $this->postJson('/api/auth/login', [
+                'identifier' => $user->email,
+                'password' => 'incorrect-password',
+            ]);
+
+            if ($attempt < 5) {
+                $response->assertUnauthorized();
+            } else {
+                $response->assertStatus(429)
+                    ->assertJsonPath('success', false)
+                    ->assertJsonPath('message', 'Too many failed login attempts. Please try again later.')
+                    ->assertJsonStructure(['retry_after']);
+            }
+        }
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => $user->email,
+            'password' => 'correct-password',
+        ])->assertStatus(429);
+
+        $this->travel(15)->minutes();
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => $user->email,
+            'password' => 'correct-password',
+        ])->assertOk();
+
+        $this->assertAuthenticatedAs($user, 'web');
+    }
+
+    public function test_successful_login_clears_previous_failed_attempts(): void
+    {
+        $user = User::factory()->create([
+            'password' => Hash::make('correct-password'),
+        ]);
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => $user->email,
+            'password' => 'incorrect-password',
+        ])->assertUnauthorized();
+
+        $this->postJson('/api/auth/login', [
+            'identifier' => $user->email,
+            'password' => 'correct-password',
+        ])->assertOk();
+
+        auth()->logout();
+
+        for ($attempt = 1; $attempt <= 4; $attempt++) {
+            $this->postJson('/api/auth/login', [
+                'identifier' => $user->email,
+                'password' => 'incorrect-password',
+            ])->assertUnauthorized();
+        }
+    }
 }

@@ -12,10 +12,13 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Password;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use App\Domains\Identity\Requests\ForgotPasswordRequest;
 use App\Domains\Identity\Requests\ResetPasswordRequest;
 use App\Domains\Identity\Requests\UpdateProfileRequest;
 use App\Domains\Identity\Services\AuthenticationService;
+use App\Domains\Identity\Services\LoginLockoutService;
 use App\Domains\Organization\Services\BusinessContextService;
 
 class AuthController extends Controller
@@ -25,6 +28,7 @@ class AuthController extends Controller
         private AuthenticationService $authenticationService,
         private BusinessContextService $businessContext,
         private RoleService $roleService,
+        private LoginLockoutService $loginLockout,
     ) {}
 
     /**
@@ -66,17 +70,40 @@ class AuthController extends Controller
 
     public function login(LoginRequest $request): JsonResponse
     {
+        $identifier = trim($request->validated('identifier'));
+        $retryAfter = $this->loginLockout->availableIn($identifier);
+
+        if ($retryAfter > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many failed login attempts. Please try again later.',
+                'retry_after' => $retryAfter,
+            ], 429)->header('Retry-After', (string) $retryAfter);
+        }
+
         $user = $this->authenticationService->attempt(
-            $request->validated('identifier'),
+            $identifier,
             $request->validated('password')
         );
 
         if (! $user) {
+            $retryAfter = $this->loginLockout->recordFailure($identifier);
+
+            if ($retryAfter > 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Too many failed login attempts. Please try again later.',
+                    'retry_after' => $retryAfter,
+                ], 429)->header('Retry-After', (string) $retryAfter);
+            }
+
             return response()->json([
                 'success' => false,
                 'message' => 'These credentials do not match our records.',
             ], 401);
         }
+
+        $this->loginLockout->clear($identifier);
 
         /*
      * Prevent a previous business context from surviving
@@ -228,8 +255,19 @@ public function me(Request $request): JsonResponse
         $status = Password::reset(
             $request->validated(),
             function ($user, $password) {
-                $user->forceFill(['password' => Hash::make($password)])->save();
-                $user->setRememberToken(str()->random(60));
+                $user->forceFill([
+                    'password' => Hash::make($password),
+                    'remember_token' => Str::random(60),
+                ])->save();
+
+                // Revoke existing database-backed sessions after a password reset.
+                if (config('session.driver') === 'database') {
+                    DB::connection(
+                        config('session.connection')
+                    )->table(config('session.table'))
+                        ->where('user_id', $user->getAuthIdentifier())
+                        ->delete();
+                }
             }
         );
 

@@ -44,21 +44,10 @@ class AppServiceProvider extends ServiceProvider
         $this->configureDefaults();
 
         RateLimiter::for('login', function (Request $request) {
-            // LoginRequest accepts `identifier`, not `email`.
-            $identifier = Str::lower(Str::ascii(trim(
-                (string) $request->input('identifier', '')
-            )));
-
-            $identifierKey = $identifier !== ''
-                ? $identifier
-                : 'missing:' . $request->ip();
-
-            return [
-                Limit::perMinute(5)->by(
-                    'login-identifier:' . $identifierKey
-                ),
-                Limit::perMinute(20)->by('login-ip:' . $request->ip()),
-            ];
+            // Account-level failed-attempt lockout is enforced by
+            // LoginLockoutService. Keep this middleware limit IP-based so it
+            // does not pre-empt the fifth failed credential attempt.
+            return Limit::perMinute(20)->by('login-ip:' . $request->ip());
         });
 
         RateLimiter::for('register', function (Request $request) {
