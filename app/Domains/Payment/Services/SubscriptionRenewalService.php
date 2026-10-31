@@ -14,8 +14,7 @@ class SubscriptionRenewalService
      *
      * This method is idempotent. A repeated webhook for the
      * same Paystack reference will never extend the subscription twice.
-     */
-    /**
+     *
      * @param array<string, mixed> $data
      */
     public function renew(array $data): Payment
