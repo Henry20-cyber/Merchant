@@ -318,9 +318,8 @@ class PaymentConfirmationService
 
         $now = now();
 
-        $periodEnd = $plan->billing_interval === 'yearly'
-            ? $now->copy()->addYear()
-            : $now->copy()->addMonth();
+        $periodEnd = app(\App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class)
+            ->endFor($now, $plan->billing_interval);
 
         /*
          * Create the MerchantOS subscription if the business

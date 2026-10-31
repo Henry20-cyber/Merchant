@@ -199,22 +199,16 @@ class SubscriptionRenewalService
             /*
              * Establish the next billing period.
              *
-             * If the previous period is still in the future,
-             * extend from its end rather than from "now".
-             *
-             * This prevents customers from losing unused time
-             * if Paystack sends the webhook slightly early/late.
+             * Always advance from the previous scheduled period end
+             * when it exists. A delayed webhook must not shift the
+             * customer's billing anniversary.
              */
-            $periodStart =
-                $subscription->current_period_end &&
-                $subscription->current_period_end->isFuture()
-                    ? $subscription->current_period_end->copy()
-                    : now();
+            $periodStart = $subscription->current_period_end
+                ? $subscription->current_period_end->copy()
+                : now();
 
-            $periodEnd =
-                $plan->billing_interval === 'yearly'
-                    ? $periodStart->copy()->addYear()
-                    : $periodStart->copy()->addMonth();
+            $periodEnd = app(\App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class)
+                ->endFor($periodStart, $plan->billing_interval);
 
             /*
              * Successful renewal restores access regardless of

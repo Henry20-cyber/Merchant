@@ -199,6 +199,8 @@ public function test_business_registration_generates_unique_merchant_id(): void
 
 public function test_business_registration_creates_free_subscription(): void
 {
+    $registeredAt = now();
+
     $business = app(BusinessService::class)
         ->registerBusiness(
             $this->validBusinessData(true, true)
@@ -215,6 +217,16 @@ public function test_business_registration_creates_free_subscription(): void
     expect($subscription->plan->slug)->toBe('free');
     expect($subscription->plan->transaction_daily_limit)->toBe(10);
     expect($subscription->plan->transaction_monthly_limit)->toBe(30);
+
+    expect($subscription->current_period_start->toDateTimeString())
+        ->toBe($registeredAt->toDateTimeString());
+
+    $expectedEnd = app(
+        \App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class
+    )->endFor($registeredAt, 'monthly');
+
+    expect($subscription->current_period_end->toDateTimeString())
+        ->toBe($expectedEnd->toDateTimeString());
 }
 
 public function test_business_registration_stores_custom_business_type(): void

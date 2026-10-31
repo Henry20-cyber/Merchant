@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Domains\Payment\Services\PaymentConfirmationService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Mockery;
@@ -38,6 +39,8 @@ class PaymentConfirmationServiceTest extends TestCase
     protected function tearDown(): void
     {
         Mockery::close();
+
+        Carbon::setTestNow();
 
         parent::tearDown();
     }
@@ -385,6 +388,8 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
+        Carbon::setTestNow(Carbon::parse('2025-01-31 10:30:00'));
+
         $before = now();
 
         app(PaymentConfirmationService::class)
@@ -395,6 +400,16 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
         $subscription = Subscription::query()
             ->where('business_id', $business->id)
             ->firstOrFail();
+
+        $this->assertSame(
+            '2025-01-31 10:30:00',
+            $subscription->current_period_start->toDateTimeString(),
+        );
+
+        $this->assertSame(
+            '2025-02-28 10:30:00',
+            $subscription->current_period_end->toDateTimeString(),
+        );
 
         expect($subscription->current_period_start)
             ->not->toBeNull();
@@ -463,6 +478,8 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
+        Carbon::setTestNow(Carbon::parse('2024-02-29 10:30:00'));
+
         $before = now();
 
         app(PaymentConfirmationService::class)
@@ -473,6 +490,16 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
         $subscription = Subscription::query()
             ->where('business_id', $business->id)
             ->firstOrFail();
+
+        $this->assertSame(
+            '2024-02-29 10:30:00',
+            $subscription->current_period_start->toDateTimeString(),
+        );
+
+        $this->assertSame(
+            '2025-02-28 10:30:00',
+            $subscription->current_period_end->toDateTimeString(),
+        );
 
         expect(
             $subscription->current_period_end->greaterThan(

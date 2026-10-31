@@ -228,14 +228,16 @@ private function createFreeSubscription(
     }
 
     $startsAt = now();
+    $periodEnd = app(\App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class)
+        ->endFor($startsAt, 'monthly');
 
     return Subscription::create([
         'business_id' => $business->id,
         'plan_id' => $freePlan->id,
         'status' => 'active',
         'starts_at' => $startsAt,
-        'current_period_start' => $startsAt->copy()->startOfMonth(),
-        'current_period_end' => $startsAt->copy()->addMonth()->startOfMonth(),
+        'current_period_start' => $startsAt,
+        'current_period_end' => $periodEnd,
         'grace_period_ends_at' => null,
         'cancelled_at' => null,
         'ended_at' => null,

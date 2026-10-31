@@ -49,6 +49,17 @@ class UsageService
     $dailyLimit = $plan->transaction_daily_limit;
     $monthlyLimit = $plan->transaction_monthly_limit;
 
+    if (
+      $monthlyLimit !== null &&
+      (
+        ! $subscription->current_period_start ||
+        ! $subscription->current_period_end ||
+        ! $subscription->current_period_end->isFuture()
+      )
+    ) {
+      return false;
+    }
+
     /*
      * NULL on both limits means unlimited.
      */
@@ -141,16 +152,27 @@ class UsageService
     $now = now();
 
     /*
-         * Daily period.
-         */
-    $dailyStart = $now->copy()->startOfDay();
+     * Daily usage follows the business's local calendar day.
+     */
+    $businessNow = $now->copy()->timezone(
+      $business->timezone ?: config('app.timezone')
+    );
+
+    $dailyStart = $businessNow->copy()->startOfDay();
     $dailyEnd = $dailyStart->copy()->addDay();
 
     /*
-         * Monthly period.
-         */
-    $monthlyStart = $now->copy()->startOfMonth();
-    $monthlyEnd = $monthlyStart->copy()->addMonth();
+     * Monthly usage follows the subscription billing anniversary,
+     * not the calendar month.
+     */
+    $monthlyStart = $subscription->current_period_start;
+    $monthlyEnd = $subscription->current_period_end;
+
+    if ($monthlyLimit !== null && (! $monthlyStart || ! $monthlyEnd)) {
+      throw ValidationException::withMessages([
+        'subscription' => 'The subscription billing period is not configured.',
+      ]);
+    }
 
     /*
          * Lock the usage records while checking and
@@ -247,7 +269,13 @@ class UsageService
   ): int {
     $at ??= now();
 
-    $start = $at->copy()->startOfDay();
+    $business = $business->fresh();
+
+    $localAt = $at->copy()->timezone(
+      $business->timezone ?: config('app.timezone')
+    );
+
+    $start = $localAt->copy()->startOfDay();
     $end = $start->copy()->addDay();
 
     return (int) UsageRecord::query()
@@ -268,10 +296,20 @@ class UsageService
     Business $business,
     ?CarbonInterface $at = null
   ): int {
-    $at ??= now();
+    $subscription = $business
+      ->subscription()
+      ->first();
 
-    $start = $at->copy()->startOfMonth();
-    $end = $start->copy()->addMonth();
+    if (
+      ! $subscription ||
+      ! $subscription->current_period_start ||
+      ! $subscription->current_period_end
+    ) {
+      return 0;
+    }
+
+    $start = $subscription->current_period_start;
+    $end = $subscription->current_period_end;
 
     return (int) UsageRecord::query()
       ->where('business_id', $business->id)

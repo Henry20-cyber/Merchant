@@ -8,6 +8,7 @@ use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Subscription\Models\UsageRecord;
 use App\Domains\Subscription\Services\UsageService;
+use App\Domains\Subscription\Services\SubscriptionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -125,6 +126,107 @@ class UsageServiceTest extends TestCase
         )->toBe(3);
     }
 
+
+    public function test_upgrade_preserves_usage_and_applies_higher_limit(): void
+    {
+        [$business] = $this->createBusinessWithPlan(
+            dailyLimit: 10,
+            monthlyLimit: 30,
+        );
+
+        for ($i = 0; $i < 3; $i++) {
+            $this->usageService->consumeTransaction($business);
+        }
+
+        $subscription = $business->subscription()->firstOrFail();
+
+        $originalStart = $subscription->current_period_start->toDateTimeString();
+        $originalEnd = $subscription->current_period_end->toDateTimeString();
+
+        $higherPlan = SubscriptionPlan::factory()->create([
+            'is_active' => true,
+            'transaction_daily_limit' => 10,
+            'transaction_monthly_limit' => 5,
+        ]);
+
+        app(SubscriptionService::class)->changePlan(
+            $subscription,
+            $higherPlan,
+        );
+
+        $subscription = $subscription->fresh();
+
+        expect($subscription->plan_id)->toBe($higherPlan->id);
+        expect($subscription->current_period_start->toDateTimeString())
+            ->toBe($originalStart);
+        expect($subscription->current_period_end->toDateTimeString())
+            ->toBe($originalEnd);
+
+        expect($this->usageService->getMonthlyTransactionUsage($business))
+            ->toBe(3);
+
+        expect($this->usageService->canCreateTransaction($business))
+            ->toBeTrue();
+
+        $this->usageService->consumeTransaction($business);
+        $this->usageService->consumeTransaction($business);
+
+        expect($this->usageService->getMonthlyTransactionUsage($business))
+            ->toBe(5);
+
+        expect($this->usageService->canCreateTransaction($business))
+            ->toBeFalse();
+    }
+
+    public function test_downgrade_preserves_usage_and_enforces_lower_limit(): void
+    {
+        [$business] = $this->createBusinessWithPlan(
+            dailyLimit: 10,
+            monthlyLimit: 30,
+        );
+
+        for ($i = 0; $i < 4; $i++) {
+            $this->usageService->consumeTransaction($business);
+        }
+
+        $subscription = $business->subscription()->firstOrFail();
+
+        $originalStart = $subscription->current_period_start->toDateTimeString();
+        $originalEnd = $subscription->current_period_end->toDateTimeString();
+
+        $lowerPlan = SubscriptionPlan::factory()->create([
+            'is_active' => true,
+            'transaction_daily_limit' => 10,
+            'transaction_monthly_limit' => 3,
+        ]);
+
+        app(SubscriptionService::class)->changePlan(
+            $subscription,
+            $lowerPlan,
+        );
+
+        $subscription = $subscription->fresh();
+
+        expect($subscription->plan_id)->toBe($lowerPlan->id);
+        expect($subscription->current_period_start->toDateTimeString())
+            ->toBe($originalStart);
+        expect($subscription->current_period_end->toDateTimeString())
+            ->toBe($originalEnd);
+
+        expect($this->usageService->getMonthlyTransactionUsage($business))
+            ->toBe(4);
+
+        expect($this->usageService->canCreateTransaction($business))
+            ->toBeFalse();
+
+        expect(
+            fn () => $this->usageService->consumeTransaction($business)
+        )->toThrow(ValidationException::class);
+
+        expect($this->usageService->getMonthlyTransactionUsage($business))
+            ->toBe(4);
+    }
+
     public function test_daily_limit_blocks_transaction(): void
     {
         [$business] = $this->createBusinessWithPlan(
@@ -203,13 +305,13 @@ class UsageServiceTest extends TestCase
 
     public function test_monthly_limit_can_block_even_when_daily_limit_has_capacity(): void
     {
-        [$business] = $this->createBusinessWithPlan(
+        [$business, , $subscription] = $this->createBusinessWithPlan(
             dailyLimit: 10,
             monthlyLimit: 2,
         );
 
-        $monthlyStart = now()->startOfMonth();
-        $monthlyEnd = $monthlyStart->copy()->addMonth();
+        $monthlyStart = $subscription->current_period_start;
+        $monthlyEnd = $subscription->current_period_end;
 
         UsageRecord::create([
             'business_id' => $business->id,

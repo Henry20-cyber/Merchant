@@ -336,6 +336,9 @@ class SubscriptionServiceTest extends TestCase
             $low
         );
 
+        $originalPeriodStart = $subscription->current_period_start;
+        $originalPeriodEnd = $subscription->current_period_end;
+
         $this->service->changePlan(
             $subscription,
             $large
@@ -344,6 +347,14 @@ class SubscriptionServiceTest extends TestCase
         expect(
             $subscription->fresh()->plan_id
         )->toBe($large->id);
+
+        expect(
+            $subscription->fresh()->current_period_start->toDateTimeString()
+        )->toBe($originalPeriodStart->toDateTimeString());
+
+        expect(
+            $subscription->fresh()->current_period_end->toDateTimeString()
+        )->toBe($originalPeriodEnd->toDateTimeString());
 
         expect(
             $business->fresh()->vat_enabled

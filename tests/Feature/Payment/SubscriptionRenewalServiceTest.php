@@ -9,6 +9,7 @@ use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
+use Carbon\Carbon;
 use Tests\TestCase;
 
 class SubscriptionRenewalServiceTest extends TestCase
@@ -163,4 +164,41 @@ class SubscriptionRenewalServiceTest extends TestCase
             'paid_at' => now()->toISOString(),
         ];
     }
+
+    public function test_delayed_renewal_preserves_original_billing_anniversary(): void
+{
+    Carbon::setTestNow(Carbon::parse('2026-04-05 12:00:00'));
+
+    try {
+        $business = Business::factory()->create();
+        $plan = $this->createPlan();
+
+        $subscription = $this->createSubscription(
+            $business,
+            $plan,
+            [
+                'current_period_start' => Carbon::parse('2026-02-28 12:00:00'),
+                'current_period_end' => Carbon::parse('2026-03-28 12:00:00'),
+            ],
+        );
+
+        app(SubscriptionRenewalService::class)->renew(
+            $this->renewalPayload('PAYSTACK-RENEWAL-DELAYED')
+        );
+
+        $subscription->refresh();
+
+        $this->assertEquals(
+            '2026-03-28 12:00:00',
+            $subscription->current_period_start->toDateTimeString(),
+        );
+
+        $this->assertEquals(
+            '2026-04-28 12:00:00',
+            $subscription->current_period_end->toDateTimeString(),
+        );
+    } finally {
+        Carbon::setTestNow();
+    }
+}
 }
