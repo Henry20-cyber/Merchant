@@ -14,8 +14,8 @@ use Illuminate\Support\Carbon;
  * @property string $business_id
  * @property string $metric
  * @property int $quantity
- * @property \Illuminate\Support\Carbon $period_start
- * @property \Illuminate\Support\Carbon $period_end
+ * @property Carbon $period_start
+ * @property Carbon $period_end
  * @property-read Business|null $business
  */
 class UsageRecord extends Model
@@ -46,8 +46,7 @@ class UsageRecord extends Model
 
     /**
      * Usage record belongs to a business.
-     */
-    /**
+     *
      * @return BelongsTo<Business, $this>
      */
     public function business(): BelongsTo
