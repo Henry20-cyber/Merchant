@@ -22,13 +22,13 @@ use Illuminate\Support\Carbon;
  * @property string|null $provider_subscription_code
  * @property string|null $provider_email_token
  * @property bool $auto_renew
- * @property \Illuminate\Support\Carbon|null $starts_at
- * @property \Illuminate\Support\Carbon|null $current_period_start
- * @property \Illuminate\Support\Carbon|null $current_period_end
- * @property \Illuminate\Support\Carbon|null $grace_period_ends_at
- * @property \Illuminate\Support\Carbon|null $restricted_at
- * @property \Illuminate\Support\Carbon|null $cancelled_at
- * @property \Illuminate\Support\Carbon|null $ended_at
+ * @property Carbon|null $starts_at
+ * @property Carbon|null $current_period_start
+ * @property Carbon|null $current_period_end
+ * @property Carbon|null $grace_period_ends_at
+ * @property Carbon|null $restricted_at
+ * @property Carbon|null $cancelled_at
+ * @property Carbon|null $ended_at
  * @property-read Business|null $business
  * @property-read SubscriptionPlan|null $plan
  */
