@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Collection;
 
 /**
  * @property string $id
@@ -23,7 +24,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property array<string, mixed>|null $features
  * @property string|null $paystack_plan_code
  * @property bool $is_active
- * @property-read \Illuminate\Database\Eloquent\Collection<int, Subscription> $subscriptions
+ * @property-read Collection<int, Subscription> $subscriptions
  */
 class SubscriptionPlan extends Model
 {
