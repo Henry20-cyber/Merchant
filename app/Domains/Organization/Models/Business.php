@@ -10,6 +10,7 @@ use App\Domains\Product\Models\ProductBarcode;
 use App\Domains\Service\Models\Service;
 use App\Domains\Subscription\Models\Subscription;
 use App\Models\User;
+use Database\Factories\BusinessFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -27,7 +28,7 @@ class Business extends Model
 
     protected static function newFactory()
     {
-        return \Database\Factories\BusinessFactory::new();
+        return BusinessFactory::new();
     }
 
     protected $table = 'businesses';
@@ -146,36 +147,36 @@ class Business extends Model
     }
 
     /**
- * Payments belonging to this business.
- */
-public function payments(): HasMany
-{
-    return $this->hasMany(Payment::class);
-}
+     * Payments belonging to this business.
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
 
-/**
- * Business has one current Account subscription.
- *
- * @return HasOne<Subscription, $this>
- */
-public function subscription(): HasOne
-{
-    return $this->hasOne(Subscription::class);
-}
+    /**
+     * Business has one current Account subscription.
+     *
+     * @return HasOne<Subscription, $this>
+     */
+    public function subscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class);
+    }
 
-/**
- * Categories belonging to this business.
- */
-public function categories(): HasMany
-{
-    return $this->hasMany(Category::class);
-}
+    /**
+     * Categories belonging to this business.
+     */
+    public function categories(): HasMany
+    {
+        return $this->hasMany(Category::class);
+    }
 
-/**
- * Services belonging to this business.
- */
-public function services(): HasMany
-{
-    return $this->hasMany(Service::class);
-}
+    /**
+     * Services belonging to this business.
+     */
+    public function services(): HasMany
+    {
+        return $this->hasMany(Service::class);
+    }
 }
