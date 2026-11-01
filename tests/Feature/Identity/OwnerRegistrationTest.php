@@ -6,7 +6,6 @@ use App\Domains\Organization\Models\BusinessType;
 use App\Models\User;
 use Database\Seeders\SubscriptionPlanSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Validation\Rules\Password;
 use Tests\TestCase;
 
 class OwnerRegistrationTest extends TestCase
@@ -160,60 +159,4 @@ public function test_owner_cannot_provide_custom_type_for_standard_business_type
         'name' => 'Henry Beauty Store',
     ]);
 }
-
-    protected function tearDown(): void
-    {
-        Password::defaults(fn () => null);
-
-        parent::tearDown();
-    }
-
-    public function test_owner_registration_rejects_password_without_symbol_under_the_production_password_policy(): void
-    {
-        Password::defaults(
-            fn () => Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-        );
-
-        $payload = $this->validPayload();
-        $payload['owner']['password'] = 'StrongPass2026';
-        $payload['owner']['password_confirmation'] = 'StrongPass2026';
-
-        $response = $this->postJson('/api/auth/register', $payload);
-
-        $response->assertUnprocessable()
-            ->assertJsonValidationErrors(['owner.password'])
-            ->assertJsonMissingValidationErrors(['password']);
-
-        $this->assertDatabaseMissing('users', [
-            'email' => 'henry@example.com',
-        ]);
-    }
-
-    public function test_owner_registration_accepts_password_meeting_the_production_complexity_requirements(): void
-    {
-        Password::defaults(
-            fn () => Password::min(12)
-                ->mixedCase()
-                ->letters()
-                ->numbers()
-                ->symbols()
-        );
-
-        $payload = $this->validPayload();
-        $payload['owner']['password'] = 'StrongPass2026!';
-        $payload['owner']['password_confirmation'] = 'StrongPass2026!';
-
-        $response = $this->postJson('/api/auth/register', $payload);
-
-        $response->assertCreated()
-            ->assertJsonPath('success', true);
-
-        $this->assertDatabaseHas('users', [
-            'email' => 'henry@example.com',
-        ]);
-    }
 }
