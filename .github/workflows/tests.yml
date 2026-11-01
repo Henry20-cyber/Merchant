@@ -86,5 +86,8 @@ jobs:
             vendor/bin/pint --test "${php_files[@]}"
           fi
 
+      - name: Run owner registration regression tests
+        run: php artisan test tests/Feature/Identity/OwnerRegistrationTest.php
+
       - name: Run CI Checks
         run: composer ci:check
