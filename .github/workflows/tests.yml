@@ -87,7 +87,7 @@ jobs:
           fi
 
       - name: Run owner registration regression tests
-        run: php artisan test tests/Feature/Identity/OwnerRegistrationTest.php
+        run: php artisan test tests/Feature/Identity/OwnerRegistrationTest.php tests/Feature/Identity/OwnerRegistrationPasswordPolicyTest.php
 
       - name: Run CI Checks
         run: composer ci:check
