@@ -18,8 +18,7 @@ class SubscriptionCheckoutService
 {
     public function __construct(
         private PaymentGateway $paymentGateway,
-    ) {
-    }
+    ) {}
 
     /**
      * Start checkout for a subscription plan.
@@ -35,66 +34,79 @@ class SubscriptionCheckoutService
         SubscriptionPlan $plan,
         string $email,
     ): array {
-        // Reject unauthorized callers before exposing subscription state.
-        $this->authorizeBillingManager($actor, $business);
-        $this->validatePlan($plan);
-
-        $this->validateCurrency($plan);
-
-        $subscription = $business->subscription()->first();
 
         /*
-         * A suspended subscription cannot start a new checkout.
+         * Serialize checkout decisions for this tenant. Locking the business
+         * row also protects the "no subscription row exists yet" case.
+         * The transaction ends before the external Paystack request.
          */
-        if ($subscription?->status === 'suspended') {
-            throw ValidationException::withMessages([
-                'subscription' => 'This subscription is suspended.',
-            ]);
-        }
-
-        /*
-         * A restricted subscription must resolve its outstanding
-         * billing problem before another checkout is created.
-         */
-        if ($subscription?->status === 'restricted') {
-            throw ValidationException::withMessages([
-                'subscription' => 'This subscription is restricted.',
-            ]);
-        }
-
-        // This release does not yet implement a safe Paystack recurring-plan
-        // replacement workflow. Do not collect a second payment that cannot
-        // be applied to an existing recurring subscription.
-        if ($subscription?->provider_subscription_code) {
-            throw ValidationException::withMessages([
-                'subscription' => 'A recurring subscription is already active. Plan changes are temporarily unavailable; contact support before making another payment.',
-            ]);
-        }
-
-        /*
-         * Generate a MerchantOS-owned reference.
-         *
-         * Paystack receives this exact reference.
-         */
-        $reference = $this->generateReference();
-
-        /*
-         * Store the payment before calling Paystack.
-         *
-         * This gives MerchantOS a durable record of the
-         * payment attempt.
-         */
-        $payment = DB::transaction(function () use (
-            $business,
-            $subscription,
-            $plan,
-            $reference,
+        [$payment, $subscription] = DB::transaction(function () use (
             $actor,
+            $business,
+            $plan,
         ) {
-            $this->authorizeBillingManager($actor, $business);
+            $lockedBusiness = Business::query()
+                ->whereKey($business->getKey())
+                ->lockForUpdate()
+                ->firstOrFail();
 
-            return Payment::create([
-                'business_id' => $business->id,
+            $this->authorizeBillingManager($actor, $lockedBusiness);
+
+            $this->validatePlan($plan);
+            $this->validateCurrency($plan);
+
+            $subscription = Subscription::query()
+                ->where('business_id', $lockedBusiness->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($subscription?->status === 'suspended') {
+                throw ValidationException::withMessages([
+                    'subscription' => 'This subscription is suspended.',
+                ]);
+            }
+
+            if ($subscription?->status === 'restricted') {
+                throw ValidationException::withMessages([
+                    'subscription' => 'This subscription is restricted.',
+                ]);
+            }
+
+            /*
+             * Never replace an active subscription, even if it is a legacy
+             * manual subscription without Paystack identifiers.
+             */
+            if (
+                $subscription?->status === 'active' ||
+                $subscription?->provider_subscription_code
+            ) {
+                throw ValidationException::withMessages([
+                    'subscription' => 'A subscription is already active or has recurring billing configured. Plan changes are temporarily unavailable; contact support before making another payment.',
+                ]);
+            }
+
+            /*
+             * A pending transaction may still be payable at Paystack even
+             * when the customer closes the browser. Do not auto-expire it.
+             */
+            $pendingCheckoutExists = Payment::query()
+                ->where('business_id', $lockedBusiness->id)
+                ->where('method', 'paystack')
+                ->where('status', 'pending')
+                ->where('metadata->type', 'subscription')
+                ->lockForUpdate()
+                ->exists();
+
+            if ($pendingCheckoutExists) {
+                throw ValidationException::withMessages([
+                    'subscription' => 'A subscription payment is already pending. Complete it or contact support if the payment was abandoned before starting another checkout.',
+                ]);
+            }
+
+            $reference = $this->generateReference();
+
+            $payment = Payment::create([
+                'business_id' => $lockedBusiness->id,
                 'subscription_id' => $subscription?->id,
                 'sale_id' => null,
                 'amount' => $plan->price,
@@ -103,7 +115,7 @@ class SubscriptionCheckoutService
                 'reference' => $reference,
                 'metadata' => [
                     'type' => 'subscription',
-                    'business_id' => $business->id,
+                    'business_id' => $lockedBusiness->id,
                     'subscription_id' => $subscription?->id,
                     'plan_id' => $plan->id,
                     'plan_slug' => $plan->slug,
@@ -111,25 +123,17 @@ class SubscriptionCheckoutService
                 ],
                 'paid_at' => null,
             ]);
+
+            return [$payment, $subscription];
         });
 
         try {
             $result = $this->paymentGateway->initialize([
                 'email' => $email,
-
-                /*
-                 * Paystack expects the amount in kobo.
-                 */
-                'amount' => $this->toMinorUnits(
-                    (string) $plan->price
-                ),
-
-                'reference' => $reference,
-
-                'callback_url' => config(
-                    'app.frontend_url'
-                ) . '/subscription/payment/callback',
-
+                'amount' => $this->toMinorUnits((string) $plan->price),
+                'reference' => $payment->reference,
+                'callback_url' => config('app.frontend_url')
+                    . '/subscription/payment/callback',
                 'metadata' => [
                     'payment_id' => $payment->id,
                     'business_id' => $business->id,
@@ -141,15 +145,17 @@ class SubscriptionCheckoutService
             ]);
         } catch (\Throwable $e) {
             /*
-             * The payment attempt remains pending/recorded.
-             *
-             * We deliberately don't mark it paid because no
-             * successful payment occurred.
+             * Retain the pending ledger entry. A timeout does not prove
+             * Paystack failed to initialize the transaction.
              */
             throw $e;
         }
 
-        if (! ($result['success'] ?? false)) {
+        if (
+            ! ($result['success'] ?? false) ||
+            empty($result['authorization_url']) ||
+            empty($result['access_code'])
+        ) {
             throw new \RuntimeException(
                 'Unable to initialize subscription payment.'
             );
@@ -157,7 +163,7 @@ class SubscriptionCheckoutService
 
         return [
             'payment_id' => $payment->id,
-            'reference' => $reference,
+            'reference' => $payment->reference,
             'authorization_url' => $result['authorization_url'],
             'access_code' => $result['access_code'],
         ];

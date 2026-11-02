@@ -452,4 +452,76 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
         'merchant@example.com'
     );
 }
+
+
+    public function test_checkout_rejects_active_subscription_without_provider_code(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+
+        Subscription::create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'provider' => null,
+            'provider_customer_code' => null,
+            'provider_authorization_code' => null,
+            'provider_subscription_code' => null,
+            'provider_email_token' => null,
+            'current_period_start' => now(),
+            'current_period_end' => now()->addMonth(),
+        ]);
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com'
+        ))->toThrow(ValidationException::class);
+
+        expect(Payment::where('business_id', $business->id)->count())->toBe(0);
+    }
+
+    public function test_checkout_rejects_second_pending_subscription_payment(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+
+        Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-PENDING-CHECKOUT-EXISTING',
+            'metadata' => [
+                'type' => 'subscription',
+                'business_id' => $business->id,
+                'plan_id' => $plan->id,
+            ],
+        ]);
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com'
+        ))->toThrow(ValidationException::class);
+
+        expect(
+            Payment::where('business_id', $business->id)
+                ->where('status', 'pending')
+                ->count()
+        )->toBe(1);
+    }
+
 }
