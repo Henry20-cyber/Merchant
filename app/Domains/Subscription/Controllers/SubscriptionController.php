@@ -55,6 +55,9 @@ class SubscriptionController
             'subscription' => [
                 'id' => $subscription->id,
                 'status' => $subscription->status,
+                'type' => $subscription->plan?->slug === 'free'
+                    ? 'free'
+                    : ($subscription->status === 'trial' ? 'trial' : 'paid'),
 
                 'starts_at' =>
                 $subscription->starts_at?->toISOString(),

@@ -172,34 +172,48 @@ class SubscriptionService
         return $subscription->refresh();
     }
 
-    /**
-     * Determine whether the subscription currently grants access.
-     */
-    public function isUsable(
-        Subscription $subscription
-    ): bool {
-        if (! in_array(
-            $subscription->status,
-            [
-                'trial',
-                'active',
-                'grace_period',
-            ],
-            true
-        )) {
-            return false;
-        }
+    
+/**
+ * Determine whether the subscription currently grants access.
+ */
+public function isUsable(
+    Subscription $subscription
+): bool {
+    $plan = $subscription->plan;
 
-        if ($subscription->status === 'grace_period') {
-            return $subscription->grace_period_ends_at !== null
-                && $subscription->grace_period_ends_at->isFuture();
-        }
-
-        // Trial and paid subscriptions are time-bounded in this product.
-        // A missing period end is invalid data, not perpetual entitlement.
-        return $subscription->current_period_end !== null
-            && $subscription->current_period_end->isFuture();
+    if (! $plan || ! $plan->is_active) {
+        return false;
     }
+
+    /*
+     * The Free plan is a permanent entitlement.
+     * It does not have a billing period or recurring payment.
+     */
+    if ($plan->slug === 'free') {
+        return $subscription->status === 'active';
+    }
+
+    if (! in_array(
+        $subscription->status,
+        [
+            'trial',
+            'active',
+            'grace_period',
+        ],
+        true
+    )) {
+        return false;
+    }
+
+    if ($subscription->status === 'grace_period') {
+        return $subscription->grace_period_ends_at !== null
+            && $subscription->grace_period_ends_at->isFuture();
+    }
+
+    return $subscription->current_period_end !== null
+        && $subscription->current_period_end->isFuture();
+}
+
 
     /**
      * Ensure the subscription's plan is active.

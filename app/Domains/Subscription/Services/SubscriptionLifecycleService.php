@@ -49,6 +49,21 @@ class SubscriptionLifecycleService
                 return $subscription;
             }
 
+
+            /*
+ * Permanent Free subscriptions do not participate
+ * in paid billing-period expiry processing.
+ *
+ * The plan must still exist and remain active.
+ */
+            if (
+                $subscription->status === 'active' &&
+                $subscription->plan?->slug === 'free'
+            ) {
+                return $subscription;
+            }
+
+
             /*
              * ---------------------------------------------------------
              * TRIAL
@@ -164,9 +179,9 @@ class SubscriptionLifecycleService
 
                 if (
                     $subscription->restricted_at
-                        ->copy()
-                        ->addDays(self::RESTRICTION_DAYS)
-                        ->isPast()
+                    ->copy()
+                    ->addDays(self::RESTRICTION_DAYS)
+                    ->isPast()
                 ) {
                     $subscription->forceFill([
                         'status' => 'suspended',

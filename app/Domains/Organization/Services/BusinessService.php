@@ -210,8 +210,9 @@ public function updateForUser(
     return $business->refresh();
 }
 
+
 /**
- * Create the default Free subscription for a new business.
+ * Create the permanent default Free subscription for a new business.
  */
 private function createFreeSubscription(
     Business $business
@@ -223,24 +224,21 @@ private function createFreeSubscription(
 
     if (! $freePlan) {
         throw new \RuntimeException(
-            'The MerchantOS Free subscription plan is not configured.'
+            'The Account Free subscription plan is not configured.'
         );
     }
-
-    $startsAt = now();
-    $periodEnd = app(\App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class)
-        ->endFor($startsAt, 'monthly');
 
     return Subscription::create([
         'business_id' => $business->id,
         'plan_id' => $freePlan->id,
         'status' => 'active',
-        'starts_at' => $startsAt,
-        'current_period_start' => $startsAt,
-        'current_period_end' => $periodEnd,
+        'starts_at' => now(),
+        'current_period_start' => null,
+        'current_period_end' => null,
         'grace_period_ends_at' => null,
         'cancelled_at' => null,
         'ended_at' => null,
+        'auto_renew' => false,
     ]);
 }
 }

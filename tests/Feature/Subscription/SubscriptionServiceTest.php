@@ -360,4 +360,33 @@ class SubscriptionServiceTest extends TestCase
             $business->fresh()->vat_enabled
         )->toBeTrue();
     }
+
+    public function test_active_free_subscription_without_period_end_is_usable(): void
+{
+    $business = $this->createBusiness();
+
+    $plan = SubscriptionPlan::create([
+        'name' => 'Free',
+        'slug' => 'free',
+        'description' => 'Free plan.',
+        'price' => 0,
+        'currency' => 'NGN',
+        'billing_interval' => 'monthly',
+        'features' => ['pos' => true],
+        'is_active' => true,
+    ]);
+
+    $subscription = Subscription::create([
+        'business_id' => $business->id,
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now(),
+        'current_period_start' => null,
+        'current_period_end' => null,
+        'auto_renew' => false,
+    ]);
+
+    expect($this->service->isUsable($subscription))
+        ->toBeTrue();
+}
 }

@@ -454,4 +454,34 @@ class SubscriptionLifecycleServiceTest extends TestCase
         expect($subscription->restricted_at->equalTo($restrictedAt))
             ->toBeTrue();
     }
+
+    public function test_active_free_subscription_without_period_end_remains_active(): void
+{
+    $business = $this->createBusiness();
+
+    $plan = SubscriptionPlan::factory()->create([
+        'slug' => 'free',
+        'price' => 0,
+        'is_active' => true,
+    ]);
+
+    $subscription = $this->createSubscription(
+        $business,
+        $plan,
+        [
+            'status' => 'active',
+            'current_period_start' => null,
+            'current_period_end' => null,
+            'auto_renew' => false,
+        ]
+    );
+
+    $this->lifecycle->process($subscription);
+
+    expect($subscription->fresh()->status)
+        ->toBe('active');
+
+    expect($subscription->fresh()->current_period_end)
+        ->toBeNull();
+}
 }
