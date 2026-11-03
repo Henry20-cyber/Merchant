@@ -19,8 +19,8 @@ class BankTransactionServiceTest extends TestCase
 
         $account = FinancialAccount::create([
             'business_id' => $business->id,
-            'provider' => 'opay',
-            'name' => 'Main OPay Account',
+            'provider' => 'bank_transfer',
+            'name' => 'Main Bank Account',
             'account_identifier' => '09012345678',
             'currency' => 'NGN',
             'is_active' => true,
@@ -32,8 +32,8 @@ class BankTransactionServiceTest extends TestCase
             $business,
             $account,
             [
-                'provider' => 'opay',
-                'provider_transaction_id' => 'OPAY-TXN-001',
+                'provider' => 'bank_transfer',
+                'provider_transaction_id' => 'BANK-TXN-001',
                 'type' => 'credit',
                 'amount' => '3200.00',
                 'currency' => 'NGN',
@@ -45,7 +45,7 @@ class BankTransactionServiceTest extends TestCase
                 'status' => 'success',
                 'occurred_at' => now(),
                 'metadata' => [
-                    'source' => 'opay_webhook',
+                    'source' => 'bank_webhook',
                 ],
             ]
         );
@@ -61,8 +61,8 @@ class BankTransactionServiceTest extends TestCase
                 'id' => $transaction->id,
                 'business_id' => $business->id,
                 'financial_account_id' => $account->id,
-                'provider' => 'opay',
-                'provider_transaction_id' => 'OPAY-TXN-001',
+                'provider' => 'bank_transfer',
+                'provider_transaction_id' => 'BANK-TXN-001',
                 'amount' => '3200.00',
             ]
         );
@@ -74,8 +74,8 @@ class BankTransactionServiceTest extends TestCase
 
         $account = FinancialAccount::create([
             'business_id' => $business->id,
-            'provider' => 'opay',
-            'name' => 'Main OPay Account',
+            'provider' => 'bank_transfer',
+            'name' => 'Main Bank Account',
             'account_identifier' => '09012345678',
             'currency' => 'NGN',
             'is_active' => true,
@@ -84,8 +84,8 @@ class BankTransactionServiceTest extends TestCase
         $service = app(BankTransactionService::class);
 
         $data = [
-            'provider' => 'opay',
-            'provider_transaction_id' => 'OPAY-TXN-DUPLICATE',
+            'provider' => 'bank_transfer',
+            'provider_transaction_id' => 'BANK-TXN-DUPLICATE',
             'type' => 'credit',
             'amount' => '5000.00',
             'currency' => 'NGN',
@@ -112,7 +112,7 @@ class BankTransactionServiceTest extends TestCase
             IncomingBankTransaction::query()
                 ->where(
                     'provider_transaction_id',
-                    'OPAY-TXN-DUPLICATE'
+                    'BANK-TXN-DUPLICATE'
                 )
                 ->count()
         )->toBe(1);
@@ -125,8 +125,8 @@ class BankTransactionServiceTest extends TestCase
 
         $accountB = FinancialAccount::create([
             'business_id' => $businessB->id,
-            'provider' => 'opay',
-            'name' => 'Business B OPay Account',
+            'provider' => 'bank_transfer',
+            'name' => 'Business B Bank Account',
             'currency' => 'NGN',
             'is_active' => true,
         ]);
@@ -137,8 +137,8 @@ class BankTransactionServiceTest extends TestCase
             $businessA,
             $accountB,
             [
-                'provider' => 'opay',
-                'provider_transaction_id' => 'OPAY-CROSS-TENANT',
+                'provider' => 'bank_transfer',
+                'provider_transaction_id' => 'BANK-TXN-CROSS-TENANT',
                 'amount' => '1000.00',
             ]
         ))->toThrow(

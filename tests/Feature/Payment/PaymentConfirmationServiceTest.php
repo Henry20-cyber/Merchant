@@ -8,10 +8,12 @@ use App\Domains\Payment\Models\Payment;
 use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use App\Domains\Payment\Services\PaymentConfirmationService;
+use App\Domains\Payment\Services\PaystackSubscriptionProvisioningService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Mockery;
 use Tests\TestCase;
@@ -21,6 +23,7 @@ class PaymentConfirmationServiceTest extends TestCase
     use RefreshDatabase;
 
     private PaymentGateway $gateway;
+    private PaystackSubscriptionProvisioningService $provisioner;
 
     protected function setUp(): void
     {
@@ -30,10 +33,26 @@ class PaymentConfirmationServiceTest extends TestCase
             PaymentGateway::class
         );
 
-        $this->app->instance(
-            PaymentGateway::class,
-            $this->gateway
-        );
+        $this->app->instance(PaymentGateway::class, $this->gateway);
+        $this->provisioner = Mockery::mock(PaystackSubscriptionProvisioningService::class);
+        $this->provisioner->shouldReceive('provision')->zeroOrMoreTimes()->byDefault()->andReturnUsing(function (Subscription $subscription): Subscription {
+            if (! $subscription->provider_subscription_code) {
+                $canProvision = filled($subscription->provider_authorization_code)
+                    && filled($subscription->provider_customer_code)
+                    && filled($subscription->plan?->paystack_plan_code);
+                $subscription->forceFill([
+                    'provider_subscription_code' => $canProvision
+                        ? str_replace('AUTH_', 'SUB_', (string) $subscription->provider_authorization_code)
+                        : null,
+                    'provider_email_token' => $canProvision
+                        ? str_replace('AUTH_', 'EMAIL_', (string) $subscription->provider_authorization_code)
+                        : null,
+                    'provisioning_status' => $canProvision ? 'provisioned' : 'manual_review',
+                ])->save();
+            }
+            return $subscription->fresh();
+        });
+        $this->app->instance(PaystackSubscriptionProvisioningService::class, $this->provisioner);
     }
 
     protected function tearDown(): void
@@ -64,10 +83,7 @@ class PaymentConfirmationServiceTest extends TestCase
             'currency' => 'NGN',
             'billing_interval' => $billingInterval,
 
-            'paystack_plan_code' =>
-                $billingInterval === 'yearly'
-                    ? 'PLN_test_yearly'
-                    : 'PLN_test_monthly',
+            'paystack_plan_code' => 'PLN_test_' . $billingInterval . '_' . Str::lower((string) Str::uuid()),
 
             'is_active' => true,
         ]);
@@ -97,7 +113,7 @@ class PaymentConfirmationServiceTest extends TestCase
                 'plan_id' => $plan->id,
                 'plan_slug' => $plan->slug,
                 'billing_interval' =>
-                    $plan->billing_interval,
+                $plan->billing_interval,
             ],
         ]);
     }
@@ -124,93 +140,68 @@ class PaymentConfirmationServiceTest extends TestCase
             'currency' => 'NGN',
 
             'authorization_code' =>
-                $authorizationCode,
+            $authorizationCode,
 
             'customer_code' =>
-                $customerCode,
+            $customerCode,
 
             'raw' => [],
         ];
     }
 
-    /**
-     * Successful Paystack recurring subscription response.
-     */
-    private function successfulProviderSubscription(
-        string $subscriptionCode = 'SUB_TEST_001',
-        string $customerCode = 'CUS_TEST_001',
-        string $emailToken = 'EMAIL_TOKEN_TEST_001'
-    ): array {
-        return [
-            'success' => true,
+    public function test_confirmed_sale_payment_updates_sale_payment_status(): void
+    {
+        $business = $this->createBusiness();
+        $cashier = User::factory()->create();
 
-            'subscription_code' =>
-                $subscriptionCode,
-
-            'customer_code' =>
-                $customerCode,
-
-            'email_token' =>
-                $emailToken,
-
-            'raw' => [],
-        ];
-    }
-
-
-public function test_confirmed_sale_payment_updates_sale_payment_status(): void
-{
-    $business = $this->createBusiness();
-    $cashier = User::factory()->create();
-
-    $sale = Sale::create([
-        'business_id' => $business->id,
-        'cashier_id' => $cashier->id,
-        'customer_id' => null,
-        'subtotal' => 10000,
-        'discount' => 0,
-        'vat_amount' => 0,
-        'total' => 10000,
-        'payment_method' => 'bank_transfer',
-        'payment_status' => 'unpaid',
-        'status' => 'completed',
-    ]);
-
-    $payment = Payment::factory()->create([
-        'business_id' => $business->id,
-        'subscription_id' => null,
-        'sale_id' => $sale->id,
-        'amount' => '10000.00',
-        'method' => 'bank_transfer',
-        'status' => 'pending',
-        'reference' => 'MERCHANTOS-SALE-CONFIRM-001',
-        'metadata' => ['type' => 'sale'],
-    ]);
-
-    $this->gateway
-        ->shouldReceive('verify')
-        ->once()
-        ->with($payment->reference)
-        ->andReturn([
-            'success' => true,
-            'status' => 'success',
-            'reference' => $payment->reference,
-            'amount' => 1_000_000,
-            'currency' => 'NGN',
-            'authorization_code' => null,
-            'customer_code' => null,
-            'raw' => [],
+        $sale = Sale::create([
+            'business_id' => $business->id,
+            'cashier_id' => $cashier->id,
+            'customer_id' => null,
+            'subtotal' => 10000,
+            'discount' => 0,
+            'vat_amount' => 0,
+            'total' => 10000,
+            'payment_method' => 'bank_transfer',
+            'payment_status' => 'unpaid',
+            'status' => 'completed',
         ]);
 
-    $confirmedPayment = app(PaymentConfirmationService::class)
-        ->confirm($payment->reference);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => $sale->id,
+            'amount' => '10000.00',
+            'method' => 'bank_transfer',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-SALE-CONFIRM-001',
+            'metadata' => ['type' => 'sale'],
+        ]);
 
-    expect($confirmedPayment->fresh()->status)
-        ->toBe('paid');
+        $this->gateway
+            ->shouldReceive('verify')
+            ->once()
+            ->with($payment->reference)
+            ->andReturn([
+                'success' => true,
+                'status' => 'success',
+                'reference' => $payment->reference,
+                'amount' => 1_000_000,
+                'currency' => 'NGN',
+                'authorization_code' => null,
+                'customer_code' => null,
+                'raw' => [],
+            ]);
 
-    expect($sale->fresh()->payment_status)
-        ->toBe('paid');
-}
+        $confirmedPayment = app(PaymentConfirmationService::class)
+            ->confirm($payment->reference);
+
+        expect($confirmedPayment->fresh()->status)
+            ->toBe('paid');
+
+        expect($sale->fresh()->payment_status)
+            ->toBe('paid');
+    }
 
 
     /**
@@ -237,22 +228,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                     $payment,
                     'AUTH_TEST_001',
                     'CUS_TEST_001'
-                )
-            );
-
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_TEST_001',
-                'plan_code' => 'PLN_test_monthly',
-                'authorization_code' => 'AUTH_TEST_001',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_TEST_001',
-                    'CUS_TEST_001',
-                    'EMAIL_TOKEN_TEST_001'
                 )
             );
 
@@ -295,22 +270,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_TEST_002',
-                'plan_code' => 'PLN_test_monthly',
-                'authorization_code' => 'AUTH_TEST_002',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_TEST_002',
-                    'CUS_TEST_002',
-                    'EMAIL_TOKEN_TEST_002'
-                )
-            );
-
         app(PaymentConfirmationService::class)
             ->confirm($payment->reference);
 
@@ -340,7 +299,7 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
             ->toBe('SUB_TEST_002');
 
         expect($subscription->provider_email_token)
-            ->toBe('EMAIL_TOKEN_TEST_002');
+            ->toBe('EMAIL_TEST_002');
 
         expect($payment->fresh()->subscription_id)
             ->toBe($subscription->id);
@@ -369,22 +328,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                     $payment,
                     'AUTH_MONTHLY',
                     'CUS_MONTHLY'
-                )
-            );
-
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_MONTHLY',
-                'plan_code' => 'PLN_test_monthly',
-                'authorization_code' => 'AUTH_MONTHLY',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_MONTHLY',
-                    'CUS_MONTHLY',
-                    'EMAIL_MONTHLY'
                 )
             );
 
@@ -459,22 +402,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                     $payment,
                     'AUTH_YEARLY',
                     'CUS_YEARLY'
-                )
-            );
-
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_YEARLY',
-                'plan_code' => 'PLN_test_yearly',
-                'authorization_code' => 'AUTH_YEARLY',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_YEARLY',
-                    'CUS_YEARLY',
-                    'EMAIL_YEARLY'
                 )
             );
 
@@ -576,22 +503,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_TRIAL',
-                'plan_code' => 'PLN_test_new_monthly',
-                'authorization_code' => 'AUTH_TRIAL',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_TRIAL',
-                    'CUS_TRIAL',
-                    'EMAIL_TRIAL'
-                )
-            );
-
         app(PaymentConfirmationService::class)
             ->confirm($payment->reference);
 
@@ -648,11 +559,8 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 'raw' => [],
             ]);
 
-        $this->gateway
-            ->shouldNotReceive('createSubscription');
-
         expect(
-            fn () => app(
+            fn() => app(
                 PaymentConfirmationService::class
             )->confirm($payment->reference)
         )->toThrow(
@@ -692,11 +600,8 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 'raw' => [],
             ]);
 
-        $this->gateway
-            ->shouldNotReceive('createSubscription');
-
         expect(
-            fn () => app(
+            fn() => app(
                 PaymentConfirmationService::class
             )->confirm($payment->reference)
         )->toThrow(
@@ -740,7 +645,7 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
             ]);
 
         expect(
-            fn () => app(PaymentConfirmationService::class)
+            fn() => app(PaymentConfirmationService::class)
                 ->confirm($payment->reference)
         )->toThrow(ValidationException::class);
 
@@ -777,9 +682,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 'raw' => [],
             ]);
 
-        $this->gateway
-            ->shouldNotReceive('createSubscription');
-
         $result = app(
             PaymentConfirmationService::class
         )->confirm($payment->reference);
@@ -806,7 +708,7 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
             ->shouldNotReceive('verify');
 
         expect(
-            fn () => app(
+            fn() => app(
                 PaymentConfirmationService::class
             )->confirm('DOES-NOT-EXIST')
         )->toThrow(
@@ -838,22 +740,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                     $payment,
                     'AUTH_DUPLICATE',
                     'CUS_DUPLICATE'
-                )
-            );
-
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_DUPLICATE',
-                'plan_code' => 'PLN_test_monthly',
-                'authorization_code' => 'AUTH_DUPLICATE',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_DUPLICATE',
-                    'CUS_DUPLICATE',
-                    'EMAIL_DUPLICATE'
                 )
             );
 
@@ -920,22 +806,6 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->with([
-                'customer_code' => 'CUS_PROVIDER',
-                'plan_code' => 'PLN_test_monthly',
-                'authorization_code' => 'AUTH_PROVIDER',
-            ])
-            ->andReturn(
-                $this->successfulProviderSubscription(
-                    'SUB_PROVIDER',
-                    'CUS_PROVIDER',
-                    'EMAIL_PROVIDER'
-                )
-            );
-
         app(PaymentConfirmationService::class)
             ->confirm($payment->reference);
 
@@ -962,7 +832,7 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
     /**
      * Missing Paystack authorization information is rejected.
      */
-    public function test_missing_paystack_authorization_information_is_rejected(): void
+    public function test_missing_paystack_authorization_information_keeps_payment_paid_and_marks_manual_review(): void
     {
         $business = $this->createBusiness();
 
@@ -988,35 +858,17 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 'raw' => [],
             ]);
 
-        $this->gateway
-            ->shouldNotReceive('createSubscription');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
 
-        expect(
-            fn () => app(
-                PaymentConfirmationService::class
-            )->confirm($payment->reference)
-        )->toThrow(
-            ValidationException::class
-        );
-
-        /*
-         * The transaction rolls back.
-         */
-        expect($payment->fresh()->status)
-            ->toBe('pending');
-
-        expect(
-            Subscription::query()
-                ->where('business_id', $business->id)
-                ->exists()
-        )->toBeFalse();
+        expect($payment->fresh()->status)->toBe('paid');
+        expect(Subscription::query()->where('business_id', $business->id)->first()->provisioning_status)->toBe('manual_review');
     }
 
     /**
      * A plan without a Paystack plan code cannot be used
      * for recurring billing.
      */
-    public function test_plan_without_paystack_plan_code_is_rejected(): void
+    public function test_plan_without_paystack_plan_code_is_marked_manual_review_after_capture(): void
     {
         $business = $this->createBusiness();
 
@@ -1045,76 +897,125 @@ public function test_confirmed_sale_payment_updates_sale_payment_status(): void
                 )
             );
 
-        $this->gateway
-            ->shouldNotReceive('createSubscription');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
 
-        expect(
-            fn () => app(
-                PaymentConfirmationService::class
-            )->confirm($payment->reference)
-        )->toThrow(
-            ValidationException::class
-        );
-
-        expect($payment->fresh()->status)
-            ->toBe('pending');
+        expect($payment->fresh()->status)->toBe('paid');
+        expect(Subscription::query()->where('business_id', $business->id)->first()->provisioning_status)->toBe('manual_review');
     }
 
-    /**
-     * Provider subscription must return a subscription code.
-     */
-    public function test_missing_provider_subscription_code_is_rejected(): void
+    public function test_provisioning_exception_does_not_roll_back_paid_payment_or_local_subscription(): void
     {
         $business = $this->createBusiness();
-
         $plan = $this->createPlan();
+        $payment = $this->createPayment($business, $plan, 'PROVISION-FAIL');
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment));
+        $this->provisioner->shouldReceive('provision')->once()->andThrow(new \RuntimeException('provider unavailable'));
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+        expect($payment->fresh()->status)->toBe('paid');
+        expect($payment->fresh()->subscription_id)->not->toBeNull();
+        expect(Subscription::find($payment->fresh()->subscription_id)->provisioning_status)->toBe('pending');
+    }
 
-        $payment = $this->createPayment(
-            $business,
-            $plan,
-            'MERCHANTOS-TEST-NO-SUB-CODE'
-        );
+    public function test_paid_confirmation_does_not_verify_provider_again(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $payment = $this->createPayment($business, $plan, 'PAID-NO-VERIFY');
+        $payment->forceFill(['status' => 'paid', 'paid_at' => now()])->save();
+        $this->gateway->shouldNotReceive('verify');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
 
-        $this->gateway
-            ->shouldReceive('verify')
-            ->once()
-            ->andReturn(
-                $this->successfulVerification(
-                    $payment,
-                    'AUTH_NO_SUB',
-                    'CUS_NO_SUB'
-                )
-            );
+        expect($payment->fresh()->status)->toBe('paid');
+    }
 
-        $this->gateway
-            ->shouldReceive('createSubscription')
-            ->once()
-            ->andReturn([
-                'success' => true,
-                'subscription_code' => null,
-                'customer_code' => 'CUS_NO_SUB',
-                'email_token' => 'EMAIL_NO_SUB',
-                'raw' => [],
-            ]);
+    public function test_paid_confirmation_resumes_pending_provisioning_for_exact_subscription(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $plan->id, 'status' => 'active', 'provisioning_status' => 'pending', 'provider' => 'paystack']);
+        $payment = $this->createPayment($business, $plan, 'PAID-RESUME');
+        $payment->forceFill(['status' => 'paid', 'paid_at' => now(), 'subscription_id' => $subscription->id])->save();
+        $this->gateway->shouldNotReceive('verify');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
 
-        expect(
-            fn () => app(
-                PaymentConfirmationService::class
-            )->confirm($payment->reference)
-        )->toThrow(
-            ValidationException::class
-        );
+        expect($payment->fresh()->subscription_id)->toBe($subscription->id);
+        $this->provisioner->shouldHaveReceived('provision')->once()->with(Mockery::on(fn($s) => $s->id === $subscription->id));
+    }
 
-        /*
-         * The whole local transaction rolls back.
-         */
-        expect($payment->fresh()->status)
-            ->toBe('pending');
+    public function test_cancelled_subscription_is_not_reactivated_or_provisioned(): void
+    {
+        $this->assertTerminalSubscriptionIsUntouched('cancelled');
+    }
+    public function test_suspended_subscription_is_not_reactivated_or_provisioned(): void
+    {
+        $this->assertTerminalSubscriptionIsUntouched('suspended');
+    }
+    public function test_restricted_subscription_is_not_reactivated_or_provisioned(): void
+    {
+        $this->assertTerminalSubscriptionIsUntouched('restricted');
+    }
+    public function test_active_subscription_is_not_overwritten_or_provisioned(): void
+    {
+        $this->assertTerminalSubscriptionIsUntouched('active');
+    }
 
-        expect(
-            Subscription::query()
-                ->where('business_id', $business->id)
-                ->exists()
-        )->toBeFalse();
+    private function assertTerminalSubscriptionIsUntouched(string $status): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $plan->id, 'status' => $status, 'provisioning_status' => 'not_required', 'provider' => 'manual']);
+        $payment = $this->createPayment($business, $plan, 'INELIGIBLE-' . $status);
+        $payment->forceFill(['status' => 'paid', 'paid_at' => now(), 'subscription_id' => $subscription->id])->save();
+        $this->gateway->shouldNotReceive('verify');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+        expect($subscription->fresh()->status)->toBe($status);
+        expect($subscription->fresh()->provider)->toBe('manual');
+        $this->provisioner->shouldNotHaveReceived('provision');
+    }
+
+    public function test_exact_checkout_subscription_is_targeted(): void
+    {
+        $business = $this->createBusiness();
+        $otherBusiness = $this->createBusiness();
+        $oldPlan = $this->createPlan();
+        $newPlan = $this->createPlan();
+        $other = Subscription::factory()->create(['business_id' => $otherBusiness->id, 'plan_id' => $oldPlan->id, 'status' => 'trial', 'provisioning_status' => 'not_required']);
+        $target = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $oldPlan->id, 'status' => 'trial', 'provisioning_status' => 'not_required']);
+        $payment = $this->createPayment($business, $newPlan, 'EXACT-CHECKOUT');
+        $payment->forceFill(['subscription_id' => $target->id, 'metadata' => array_merge($payment->metadata, ['subscription_id' => $target->id])])->save();
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment, 'AUTH_EXACT', 'CUS_EXACT'));
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+        expect($target->fresh()->plan_id)->toBe($newPlan->id);
+        expect($other->fresh()->plan_id)->toBe($oldPlan->id);
+        expect($payment->fresh()->subscription_id)->toBe($target->id);
+    }
+
+    public function test_provisioner_receives_the_subscription_associated_with_payment(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $plan->id, 'status' => 'trial', 'provisioning_status' => 'not_required']);
+        $payment = $this->createPayment($business, $plan, 'RIGHT-SUBSCRIPTION');
+        $payment->forceFill(['subscription_id' => $subscription->id])->save();
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment));
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($payment->fresh()->subscription_id)->toBe($subscription->id);
+        $this->provisioner->shouldHaveReceived('provision')->once()->with(Mockery::on(fn($s) => $s->id === $subscription->id));
+    }
+
+    public function test_legacy_not_required_paid_subscription_is_not_resumed(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $plan->id, 'status' => 'active', 'provisioning_status' => 'not_required']);
+        $payment = $this->createPayment($business, $plan, 'LEGACY-NOT-REQUIRED');
+        $payment->forceFill(['status' => 'paid', 'paid_at' => now(), 'subscription_id' => $subscription->id])->save();
+        $this->gateway->shouldNotReceive('verify');
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($subscription->fresh()->status)->toBe('active');
+        expect($subscription->fresh()->provisioning_status)->toBe('not_required');
+        $this->provisioner->shouldNotHaveReceived('provision');
     }
 }

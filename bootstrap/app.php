@@ -29,6 +29,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('subscriptions:process')
             ->everyMinute()
             ->withoutOverlapping();
+
+        $schedule->command('payment:webhooks:process-due')
+            ->everyMinute()
+            ->withoutOverlapping(30);
     })
 
     ->withMiddleware(function (Middleware $middleware): void {

@@ -25,33 +25,7 @@ class SubscriptionBillingService
         Subscription $subscription,
         User $actor,
     ): Subscription {
-        return DB::transaction(function () use ($subscription, $actor) {
-            $subscription = Subscription::query()
-                ->with('plan')
-                ->lockForUpdate()
-                ->findOrFail($subscription->id);
-
-            $this->authorizeBillingManager($actor, $subscription);
-            $this->ensureManageable($subscription);
-
-            if (! $subscription->auto_renew) {
-                return $subscription->refresh();
-            }
-
-            $this->ensureProviderSubscription($subscription);
-
-            $this->paymentGateway->disableSubscription(
-                $subscription->provider_subscription_code,
-                $subscription->provider_email_token,
-            );
-
-            $subscription->forceFill([
-                'auto_renew' => false,
-                'cancelled_at' => now(),
-            ])->save();
-
-            return $subscription->refresh();
-        });
+        return $this->runProviderRenewalChange($subscription, $actor, false);
     }
 
     /**
@@ -61,43 +35,111 @@ class SubscriptionBillingService
         Subscription $subscription,
         User $actor,
     ): Subscription {
-        return DB::transaction(function () use ($subscription, $actor) {
-            $subscription = Subscription::query()
-                ->with('plan')
-                ->lockForUpdate()
-                ->findOrFail($subscription->id);
+        return $this->runProviderRenewalChange($subscription, $actor, true);
+    }
 
-            $this->authorizeBillingManager($actor, $subscription);
-            $this->ensureManageable($subscription);
+    /**
+     * Keep provider network I/O outside database transactions and serialize
+     * changes with an atomic cache lock. A provider failure leaves local state
+     * unchanged; ambiguous outcomes must be checked with Paystack before retry.
+     */
+    private function runProviderRenewalChange(
+        Subscription $subscription,
+        User $actor,
+        bool $enable,
+    ): Subscription {
+        $lock = \Illuminate\Support\Facades\Cache::lock(
+            'subscription-renewal:' . $subscription->getKey(),
+            60,
+        );
 
-            if ($subscription->auto_renew) {
-                return $subscription->refresh();
-            }
+        if (! $lock->get()) {
+            throw ValidationException::withMessages([
+                'subscription' => 'A recurring-billing change is already in progress. Please try again shortly.',
+            ]);
+        }
 
-            $this->ensureProviderSubscription($subscription);
+        try {
+            $current = DB::transaction(function () use ($subscription, $actor, $enable) {
+                $locked = Subscription::query()
+                    ->with('plan')
+                    ->lockForUpdate()
+                    ->findOrFail($subscription->id);
 
-            if (
-                $subscription->current_period_end !== null &&
-                $subscription->current_period_end->isPast()
-            ) {
+                $this->authorizeBillingManager($actor, $locked);
+                $this->ensureManageable($locked);
+
+                if ($enable && $locked->current_period_end !== null
+                    && $locked->current_period_end->isPast()) {
+                    throw ValidationException::withMessages([
+                        'subscription' => 'The current billing period has ended. Start a new subscription instead.',
+                    ]);
+                }
+
+                $this->ensureProviderSubscription($locked);
+
+                if ((bool) $locked->auto_renew === $enable) {
+                    return null;
+                }
+
+                return [
+                    'id' => $locked->id,
+                    'provider_subscription_code' => $locked->provider_subscription_code,
+                    'provider_email_token' => $locked->provider_email_token,
+                    'auto_renew' => (bool) $locked->auto_renew,
+                    'status' => $locked->status,
+                    'current_period_end' => $locked->current_period_end?->toISOString(),
+                ];
+            });
+
+            if ($current === null) return $subscription->fresh(['plan']);
+
+            // Paystack network request: transactionLevel() must be zero here.
+            $result = $enable
+                ? $this->paymentGateway->enableSubscription(
+                    $current['provider_subscription_code'],
+                    $current['provider_email_token'],
+                )
+                : $this->paymentGateway->disableSubscription(
+                    $current['provider_subscription_code'],
+                    $current['provider_email_token'],
+                );
+
+            if (! ($result['success'] ?? false)) {
                 throw ValidationException::withMessages([
-                    'subscription' =>
-                        'The current billing period has ended. Start a new subscription instead.',
+                    'subscription' => 'The payment provider did not confirm the recurring-billing change.',
                 ]);
             }
 
-            $this->paymentGateway->enableSubscription(
-                $subscription->provider_subscription_code,
-                $subscription->provider_email_token,
-            );
+            return DB::transaction(function () use ($current, $enable) {
+                $locked = Subscription::query()
+                    ->with('plan')
+                    ->lockForUpdate()
+                    ->findOrFail($current['id']);
 
-            $subscription->forceFill([
-                'auto_renew' => true,
-                'cancelled_at' => null,
-            ])->save();
+                $stateChanged =
+                    (bool) $locked->auto_renew !== $current['auto_renew']
+                    || $locked->provider_subscription_code !== $current['provider_subscription_code']
+                    || $locked->provider_email_token !== $current['provider_email_token']
+                    || $locked->status !== $current['status']
+                    || $locked->current_period_end?->toISOString() !== $current['current_period_end'];
 
-            return $subscription->refresh();
-        });
+                if ($stateChanged) {
+                    throw ValidationException::withMessages([
+                        'subscription' => 'The subscription changed while the provider request was processing. Refresh and verify its status before trying again.',
+                    ]);
+                }
+
+                $locked->forceFill([
+                    'auto_renew' => $enable,
+                    'cancelled_at' => $enable ? null : now(),
+                ])->save();
+
+                return $locked->refresh()->load('plan');
+            });
+        } finally {
+            $lock->release();
+        }
     }
 
     /**

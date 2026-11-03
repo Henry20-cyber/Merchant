@@ -11,6 +11,21 @@ class PaystackGatewayTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config()->set(
+            'services.paystack.secret_key',
+            'sk_test_account_automated_tests'
+        );
+
+        config()->set(
+            'services.paystack.base_url',
+            'https://api.paystack.co'
+        );
+    }
+
     /**
      * The gateway can be resolved from Laravel's container.
      */
@@ -475,4 +490,107 @@ public function test_failed_subscription_disabling_throws_exception(): void
         'Invalid token'
     );
 }
+
+
+    public function test_paystack_verification_returns_numeric_customer_id(): void
+    {
+        Http::fake(['https://api.paystack.co/transaction/verify/*' => Http::response([
+            'status' => true,
+            'data' => [
+                'status' => 'success', 'reference' => 'customer-id-reference',
+                'amount' => 100000, 'currency' => 'NGN',
+                'customer' => ['id' => 123456, 'customer_code' => 'CUS_numeric_test'],
+                'authorization' => ['authorization_code' => 'AUTH_numeric_test'],
+            ],
+        ], 200)]);
+
+        $result = app(PaymentGateway::class)->verify('customer-id-reference');
+        expect($result['customer_id'])->toBe(123456)
+            ->and($result['customer_code'])->toBe('CUS_numeric_test');
+    }
+
+    public function test_paystack_plan_can_be_fetched_by_plan_code(): void
+    {
+        Http::fake(['https://api.paystack.co/plan/PLN_test_123' => Http::response([
+            'status' => true,
+            'data' => ['id' => 987, 'plan_code' => 'PLN_test_123', 'name' => 'Account Monthly', 'amount' => 500000, 'currency' => 'NGN'],
+        ], 200)]);
+
+        $result = app(PaymentGateway::class)->fetchPlan('PLN_test_123');
+        expect($result['success'])->toBeTrue()
+            ->and($result['data']['id'])->toBe(987)
+            ->and($result['data']['plan_code'])->toBe('PLN_test_123');
+        Http::assertSent(fn ($request) => $request->method() === 'GET'
+            && $request->url() === 'https://api.paystack.co/plan/PLN_test_123');
+    }
+
+    public function test_paystack_subscriptions_can_be_listed_with_supported_filters(): void
+    {
+        Http::fake(['https://api.paystack.co/subscription*' => Http::response([
+            'status' => true,
+            'data' => [['id' => 321, 'subscription_code' => 'SUB_list_test']],
+            'meta' => ['total' => 1, 'skipped' => 0, 'perPage' => 25, 'page' => 2],
+        ], 200)]);
+
+        $result = app(PaymentGateway::class)->listSubscriptions([
+            'perPage' => 25, 'page' => 2, 'customer' => 123456, 'plan' => 987,
+        ]);
+        expect($result['success'])->toBeTrue()
+            ->and($result['data'])->toHaveCount(1)
+            ->and($result['data'][0]['subscription_code'])->toBe('SUB_list_test')
+            ->and($result['meta']['total'])->toBe(1);
+
+        Http::assertSent(function ($request) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            return $request->method() === 'GET'
+                && parse_url($request->url(), PHP_URL_PATH) === '/subscription'
+                && (int) ($query['perPage'] ?? 0) === 25
+                && (int) ($query['page'] ?? 0) === 2
+                && (int) ($query['customer'] ?? 0) === 123456
+                && (int) ($query['plan'] ?? 0) === 987;
+        });
+    }
+
+    public function test_paystack_subscription_can_be_fetched_by_subscription_code(): void
+    {
+        Http::fake(['https://api.paystack.co/subscription/SUB_fetch_test' => Http::response([
+            'status' => true,
+            'data' => [
+                'id' => 654, 'subscription_code' => 'SUB_fetch_test', 'email_token' => 'EMAIL_fetch_test',
+                'status' => 'active', 'customer' => ['id' => 123456, 'customer_code' => 'CUS_fetch_test'],
+                'plan' => ['id' => 987, 'plan_code' => 'PLN_fetch_test'],
+                'authorization' => ['authorization_code' => 'AUTH_fetch_test'],
+            ],
+        ], 200)]);
+
+        $result = app(PaymentGateway::class)->fetchSubscription('SUB_fetch_test');
+        expect($result['success'])->toBeTrue()
+            ->and($result['data']['subscription_code'])->toBe('SUB_fetch_test')
+            ->and($result['data']['customer']['id'])->toBe(123456);
+    }
+
+    public function test_subscription_list_rejects_unknown_filters_and_unbounded_page_size(): void
+    {
+        $gateway = app(PaymentGateway::class);
+        expect(fn () => $gateway->listSubscriptions(['email' => 'customer@example.com']))
+            ->toThrow(\RuntimeException::class, 'Unsupported Paystack subscription list filter');
+        expect(fn () => $gateway->listSubscriptions(['perPage' => 1000]))
+            ->toThrow(\RuntimeException::class, 'pagination values are invalid');
+    }
+
+    public function test_paystack_subscription_lookup_http_errors_are_normalized(): void
+    {
+        Http::fake([
+            'https://api.paystack.co/plan/*' => Http::response(['message' => 'Server error'], 500),
+            'https://api.paystack.co/subscription*' => Http::response(['message' => 'Server error'], 500),
+        ]);
+        $gateway = app(PaymentGateway::class);
+        expect(fn () => $gateway->fetchPlan('PLN_error'))
+            ->toThrow(\RuntimeException::class, 'Unable to fetch Paystack plan.');
+        expect(fn () => $gateway->listSubscriptions())
+            ->toThrow(\RuntimeException::class, 'Unable to list Paystack subscriptions.');
+        expect(fn () => $gateway->fetchSubscription('SUB_error'))
+            ->toThrow(\RuntimeException::class, 'Unable to fetch Paystack subscription.');
+    }
+
 }

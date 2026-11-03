@@ -22,6 +22,10 @@ class PaymentWebhookEvent extends Model
         'payload',
         'error_message',
         'processed_at',
+        'processing_token',
+        'processing_started_at',
+        'attempts',
+        'next_attempt_at',
     ];
 
     protected function casts(): array
@@ -29,6 +33,10 @@ class PaymentWebhookEvent extends Model
         return [
             'payload' => 'array',
             'processed_at' => 'datetime',
+            'processing_token' => 'string',
+            'processing_started_at' => 'datetime',
+            'attempts' => 'integer',
+            'next_attempt_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];

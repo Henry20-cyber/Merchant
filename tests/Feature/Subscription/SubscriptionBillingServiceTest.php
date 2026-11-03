@@ -16,6 +16,7 @@ use Illuminate\Validation\ValidationException;
 use Mockery;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Tests\TestCase;
+use Illuminate\Support\Facades\DB;
 
 class SubscriptionBillingServiceTest extends TestCase
 {
@@ -89,7 +90,7 @@ class SubscriptionBillingServiceTest extends TestCase
         $gateway = Mockery::mock(PaymentGateway::class);
         $gateway->shouldNotReceive('disableSubscription');
 
-        expect(fn () => app(SubscriptionBillingService::class, [
+        expect(fn() => app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
         ])->disableRenewal($subscription, $actor))
             ->toThrow(AccessDeniedHttpException::class);
@@ -113,10 +114,86 @@ class SubscriptionBillingServiceTest extends TestCase
         $gateway = Mockery::mock(PaymentGateway::class);
         $gateway->shouldNotReceive('disableSubscription');
 
+        expect(fn() => app(SubscriptionBillingService::class, [
+            'paymentGateway' => $gateway,
+        ])->disableRenewal($subscription, $actor))
+            ->toThrow(ValidationException::class);
+    }
+
+    public function test_provider_renewal_calls_run_outside_database_transactions(): void
+    {
+        $business = Business::factory()->create();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->createPaidPlan();
+        $subscription = $this->createSubscription($business, $plan);
+
+        $transactionLevelBeforeService = DB::transactionLevel();
+
+        $gateway = Mockery::mock(PaymentGateway::class);
+
+        $gateway->shouldReceive('disableSubscription')
+            ->once()
+            ->andReturnUsing(function () use ($transactionLevelBeforeService) {
+                expect(DB::transactionLevel())
+                    ->toBe($transactionLevelBeforeService);
+
+                return ['success' => true, 'raw' => []];
+            });
+
+        $result = app(SubscriptionBillingService::class, [
+            'paymentGateway' => $gateway,
+        ])->disableRenewal($subscription, $actor);
+
+        expect($result->auto_renew)->toBeFalse();
+    }
+
+    public function test_provider_renewal_state_is_not_changed_when_provider_fails(): void
+    {
+        $business = Business::factory()->create();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->createPaidPlan();
+        $subscription = $this->createSubscription($business, $plan);
+
+        $gateway = Mockery::mock(PaymentGateway::class);
+        $gateway->shouldReceive('disableSubscription')->once()
+            ->andReturn(['success' => false, 'raw' => []]);
+
+        expect(fn() => app(SubscriptionBillingService::class, [
+            'paymentGateway' => $gateway,
+        ])->disableRenewal($subscription, $actor))
+            ->toThrow(ValidationException::class);
+
+        expect($subscription->fresh()->auto_renew)->toBeTrue();
+        expect($subscription->fresh()->cancelled_at)->toBeNull();
+    }
+
+    public function test_provider_result_is_not_applied_after_subscription_state_changes(): void
+    {
+        $business = Business::factory()->create();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->createPaidPlan();
+        $subscription = $this->createSubscription($business, $plan);
+
+        $gateway = Mockery::mock(PaymentGateway::class);
+        $gateway->shouldReceive('disableSubscription')
+            ->once()
+            ->andReturnUsing(function () use ($subscription) {
+                // Simulate a webhook or another process changing the subscription
+                // while the provider request is in flight.
+                Subscription::query()
+                    ->whereKey($subscription->id)
+                    ->update(['status' => 'past_due']);
+
+                return ['success' => true, 'raw' => []];
+            });
+
         expect(fn () => app(SubscriptionBillingService::class, [
             'paymentGateway' => $gateway,
         ])->disableRenewal($subscription, $actor))
             ->toThrow(ValidationException::class);
+
+        expect($subscription->fresh()->status)->toBe('past_due');
+        expect($subscription->fresh()->auto_renew)->toBeTrue();
     }
 
     private function makeBillingActor(Business $business): User

@@ -36,6 +36,7 @@ interface PaymentGateway
      *     currency: string|null,
      *     authorization_code: string|null,
      *     customer_code: string|null,
+     *     customer_id: int|null,
      *     raw: array
      * }
      */
@@ -59,6 +60,25 @@ interface PaymentGateway
      * }
      */
     public function createSubscription(array $data): array;
+
+    /**
+     * Fetch a Paystack plan by numeric ID or plan code.
+     * @return array{success: bool, data: array, raw: array}
+     */
+    public function fetchPlan(string $identifier): array;
+
+    /**
+     * List Paystack subscriptions using supported filters.
+     * @param array{perPage?: int, page?: int, customer?: int, plan?: int} $filters
+     * @return array{success: bool, data: array, meta: array, raw: array}
+     */
+    public function listSubscriptions(array $filters = []): array;
+
+    /**
+     * Fetch one Paystack subscription by numeric ID or subscription code.
+     * @return array{success: bool, data: array, raw: array}
+     */
+    public function fetchSubscription(string $identifier): array;
 
     /**
      * Disable a recurring subscription.

@@ -253,6 +253,9 @@ class SubscriptionCheckoutServiceTest extends TestCase
             'is_active' => false,
         ]);
 
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('initialize')->never();
+
         $service = app(
             SubscriptionCheckoutService::class
         );
@@ -278,6 +281,9 @@ class SubscriptionCheckoutServiceTest extends TestCase
         $plan->update([
             'currency' => 'USD',
         ]);
+
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('initialize')->never();
 
         $service = app(
             SubscriptionCheckoutService::class

@@ -203,16 +203,7 @@ class PaymentWebhookEventProcessor
                      * FAILED RECURRING PAYMENT
                      * -------------------------------------------------
                      */
-                    if (
-                        in_array(
-                            $event,
-                            [
-                                'invoice.payment_failed',
-                                'charge.failed',
-                            ],
-                            true
-                        )
-                    ) {
+                    if ($event === 'invoice.payment_failed') {
                         $customerCode =
                             data_get(
                                 $payload,
@@ -244,6 +235,18 @@ class PaymentWebhookEventProcessor
 
                                 'subscription_code' =>
                                     $subscriptionCode,
+
+                                'reference' =>
+                                    data_get($payload, 'data.transaction.reference')
+                                    ?? data_get($payload, 'data.reference'),
+
+                                'amount' =>
+                                    data_get($payload, 'data.transaction.amount')
+                                    ?? data_get($payload, 'data.amount'),
+
+                                'currency' =>
+                                    data_get($payload, 'data.transaction.currency')
+                                    ?? data_get($payload, 'data.currency'),
                             ]);
                         }
                     }

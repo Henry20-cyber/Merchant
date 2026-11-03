@@ -2,16 +2,17 @@
 
 namespace App\Domains\Payment\Services;
 
+use App\Domains\Organization\Models\Business;
+use App\Domains\Organization\Services\BusinessVatService;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
 use App\Domains\Sales\Models\Sale;
-use App\Domains\Payment\Services\PaymentService;
-use App\Domains\Organization\Models\Business;
-use App\Domains\Organization\Services\BusinessVatService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
+use App\Domains\Subscription\Services\SubscriptionPeriodCalculator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class PaymentConfirmationService
 {
@@ -19,452 +20,159 @@ class PaymentConfirmationService
         private PaymentGateway $paymentGateway,
         private BusinessVatService $businessVatService,
         private PaymentService $paymentService,
-    ) {
-        
-    }
+        private PaystackSubscriptionProvisioningService $provisioningService,
+    ) {}
 
-    /**
-     * Confirm a payment using the payment provider.
-     *
-     * The operation is idempotent:
-     * an already-paid payment is never fulfilled twice.
-     */
     public function confirm(string $reference): Payment
     {
-        // Read first and perform the network verification before opening a
-        // database transaction or acquiring row locks.
-        $payment = Payment::query()
-            ->where('reference', $reference)
-            ->first();
-
+        $payment = Payment::query()->where('reference', $reference)->first();
         if (! $payment) {
-            throw ValidationException::withMessages([
-                'reference' => 'Payment not found.',
-            ]);
+            throw ValidationException::withMessages(['reference' => 'Payment not found.']);
         }
 
         if ($payment->status === 'paid') {
-            return $payment;
+            $this->resumeProvisioning($payment);
+            return $payment->fresh();
         }
-
         if ($payment->status !== 'pending') {
-            throw ValidationException::withMessages([
-                'payment' => 'Only pending payments can be confirmed.',
-            ]);
+            throw ValidationException::withMessages(['payment' => 'Only pending payments can be confirmed.']);
         }
 
-        // Paystack is authoritative. Network I/O must not hold DB row locks.
+        // Network verification and all validation happen before any transaction.
         $verified = $this->paymentGateway->verify($reference);
-
-        return DB::transaction(function () use ($reference, $verified) {
-            $payment = Payment::query()
-                ->where('reference', $reference)
-                ->lockForUpdate()
-                ->first();
-
-            if (! $payment) {
-                throw ValidationException::withMessages([
-                    'reference' => 'Payment not found.',
-                ]);
-            }
-
-            // Another concurrent confirmation may have completed while the
-            // provider verification was in flight.
-            if ($payment->status === 'paid') {
-                return $payment->refresh();
-            }
-
-            if ($payment->status !== 'pending') {
-                throw ValidationException::withMessages([
-                    'payment' => 'Only pending payments can be confirmed.',
-                ]);
-            }
-
-            /*
-             * A provider-reported failed transaction is an expected
-             * payment outcome, not an application exception.
-             *
-             * Persist the failed state and commit the transaction.
-             */
-            if (
-                ! ($verified['success'] ?? false) ||
-                ($verified['status'] ?? null) !== 'success'
-            ) {
-                $payment->forceFill([
-                    'status' => 'failed',
-                ])->save();
-
-                return $payment->refresh();
-            }
-
-            /*
-             * The verified reference must match our local payment.
-             */
-            if (
-                ($verified['reference'] ?? null) !==
-                $payment->reference
-            ) {
-                throw ValidationException::withMessages([
-                    'reference' => 'Payment reference mismatch.',
-                ]);
-            }
-
-            /*
-             * MerchantOS stores amounts in major currency units.
-             * Paystack returns amounts in minor units.
-             */
-            $expectedAmount = $this->toMinorUnits(
-                (string) $payment->amount
-            );
-
-            if (
-                ($verified['amount'] ?? null) !==
-                $expectedAmount
-            ) {
-                throw ValidationException::withMessages([
-                    'amount' => 'Payment amount does not match.',
-                ]);
-            }
-
-            /*
-             * Subscription currency is checked against the plan
-             * during subscription fulfilment.
-             *
-             * For non-subscription payments, use payment metadata
-             * when available.
-             */
-            if (
-                ($payment->metadata['type'] ?? null) !==
-                'subscription'
-            ) {
-                $expectedCurrency = strtoupper(
-                    (string) (
-                        $payment->metadata['currency']
-                        ?? 'NGN'
-                    )
-                );
-
-                $verifiedCurrency = strtoupper(
-                    (string) (
-                        $verified['currency']
-                        ?? ''
-                    )
-                );
-
-                if (
-                    $verifiedCurrency === '' ||
-                    $verifiedCurrency !== $expectedCurrency
-                ) {
-                    throw ValidationException::withMessages([
-                        'currency' => 'Payment currency does not match.',
-                    ]);
+        if (! ($verified['success'] ?? false) || ($verified['status'] ?? null) !== 'success') {
+            return DB::transaction(function () use ($reference): Payment {
+                $locked = Payment::query()->where('reference', $reference)->lockForUpdate()->firstOrFail();
+                if ($locked->status === 'pending') {
+                    $locked->forceFill(['status' => 'failed'])->save();
                 }
+                return $locked->fresh();
+            });
+        }
+
+        if (($verified['reference'] ?? null) !== $payment->reference) {
+            throw ValidationException::withMessages(['reference' => 'Payment reference mismatch.']);
+        }
+        if (($verified['amount'] ?? null) !== $this->toMinorUnits((string) $payment->amount)) {
+            throw ValidationException::withMessages(['amount' => 'Payment amount does not match.']);
+        }
+
+        $plan = null;
+        if (($payment->metadata['type'] ?? null) === 'subscription') {
+            $planId = $payment->metadata['plan_id'] ?? null;
+            $plan = SubscriptionPlan::query()->whereKey($planId)->where('is_active', true)->first();
+            if (! $plan) {
+                throw ValidationException::withMessages(['plan' => 'The subscription plan is no longer available.']);
             }
+            if (strtoupper((string) ($verified['currency'] ?? '')) !== strtoupper((string) $plan->currency)) {
+                throw ValidationException::withMessages(['currency' => 'Payment currency does not match the subscription plan.']);
+            }
+            if (($verified['amount'] ?? null) !== $this->toMinorUnits((string) $plan->price)) {
+                throw ValidationException::withMessages(['amount' => 'Payment amount does not match the selected subscription plan.']);
+            }
+        } else {
+            $expectedCurrency = strtoupper((string) ($payment->metadata['currency'] ?? 'NGN'));
+            if (strtoupper((string) ($verified['currency'] ?? '')) !== $expectedCurrency) {
+                throw ValidationException::withMessages(['currency' => 'Payment currency does not match.']);
+            }
+        }
 
-            /*
-             * Mark payment as paid.
-             */
-            $payment->forceFill([
-                'status' => 'paid',
-                'paid_at' => now(),
-            ])->save();
-
-            if ($payment->sale_id !== null) {
-                $sale = Sale::query()
-                    ->whereKey($payment->sale_id)
-                    ->where('business_id', $payment->business_id)
-                    ->lockForUpdate()
-                    ->first();
-
-                if (! $sale) {
-                    throw ValidationException::withMessages([
-                        'sale' => 'The payment sale could not be found.',
-                    ]);
-                }
-
+        // Payment capture is committed independently of local subscription preparation and provider work.
+        $newlyPaid = false;
+        $payment = DB::transaction(function () use ($reference, &$newlyPaid): Payment {
+            $locked = Payment::query()->where('reference', $reference)->lockForUpdate()->firstOrFail();
+            if ($locked->status === 'paid') return $locked->fresh();
+            if ($locked->status !== 'pending') {
+                throw ValidationException::withMessages(['payment' => 'Only pending payments can be confirmed.']);
+            }
+            $locked->forceFill(['status' => 'paid', 'paid_at' => now()])->save();
+            $newlyPaid = true;
+            if ($locked->sale_id !== null) {
+                $sale = Sale::query()->whereKey($locked->sale_id)->where('business_id', $locked->business_id)->lockForUpdate()->first();
+                if (! $sale) throw ValidationException::withMessages(['sale' => 'The payment sale could not be found.']);
                 $this->paymentService->syncSalePaymentStatus($sale);
             }
-
-            /*
-             * Subscription payments require recurring-billing
-             * fulfilment.
-             */
-            if (
-                ($payment->metadata['type'] ?? null) ===
-                'subscription'
-            ) {
-                $this->fulfilSubscriptionPayment(
-                    $payment,
-                    $verified
-                );
-            }
-
-            return $payment->refresh();
+            return $locked->fresh();
         });
+
+        if ($plan && $newlyPaid) {
+            $this->prepareAndProvision($payment, $plan, $verified);
+        } elseif ($plan) {
+            $this->resumeProvisioning($payment);
+        }
+        return $payment->fresh();
     }
 
-    /**
-     * Fulfil a successful subscription payment.
-     */
-    private function fulfilSubscriptionPayment(
-        Payment $payment,
-        array $verified
-    ): void {
+    private function resumeProvisioning(Payment $payment): void
+    {
+        if (($payment->metadata['type'] ?? null) !== 'subscription') return;
+        $subscriptionId = $payment->subscription_id ?? ($payment->metadata['subscription_id'] ?? null);
+        if (! $subscriptionId) return;
+        $subscription = Subscription::query()->find($subscriptionId);
+        if (! $subscription
+            || (string) $subscription->business_id !== (string) $payment->business_id
+            || (isset($payment->metadata['plan_id'])
+                && (string) $subscription->plan_id !== (string) $payment->metadata['plan_id'])) return;
+        if (! in_array($subscription->status, ['trial', 'past_due', 'grace_period', 'active'], true)) return;
+        if ($subscription->status === 'active' && $subscription->provisioning_status === 'not_required') return;
+        if (! in_array($subscription->provisioning_status, ['pending', 'creating', 'reconciliation_required'], true)) return;
+        try { $this->provisioningService->provision($subscription); } catch (Throwable) { /* Payment remains captured; provisioning state is persisted by the owner. */ }
+    }
+
+    private function prepareAndProvision(Payment $payment, SubscriptionPlan $plan, array $verified): void
+    {
         $metadata = $payment->metadata ?? [];
+        $businessId = $metadata['business_id'] ?? $payment->business_id;
+        if (! $businessId
+            || (string) $businessId !== (string) $payment->business_id
+            || (float) $plan->price <= 0) return;
 
-        $businessId = $metadata['business_id'] ?? null;
-        $planId = $metadata['plan_id'] ?? null;
+        $subscription = DB::transaction(function () use ($payment, $plan, $verified, $metadata, $businessId): ?Subscription {
+            $exactId = $payment->subscription_id ?? ($metadata['subscription_id'] ?? null);
+            $query = Subscription::query()->where('business_id', $businessId);
+            if ($exactId) $query->whereKey($exactId);
+            $subscription = $query->lockForUpdate()->first();
 
-        if (! $businessId || ! $planId) {
-            throw ValidationException::withMessages([
-                'payment' => 'Subscription payment metadata is incomplete.',
-            ]);
-        }
-
-        /*
-         * Load the authoritative subscription plan.
-         */
-        $plan = SubscriptionPlan::query()
-            ->whereKey($planId)
-            ->where('is_active', true)
-            ->first();
-
-        if (! $plan) {
-            throw ValidationException::withMessages([
-                'plan' => 'The subscription plan is no longer available.',
-            ]);
-        }
-
-        /*
-         * The verified Paystack currency must match
-         * the MerchantOS plan currency.
-         */
-        $verifiedCurrency = strtoupper(
-            (string) ($verified['currency'] ?? '')
-        );
-
-        $planCurrency = strtoupper(
-            (string) $plan->currency
-        );
-
-        if ($verifiedCurrency !== $planCurrency) {
-            throw ValidationException::withMessages([
-                'currency' => 'Payment currency does not match the subscription plan.',
-            ]);
-        }
-
-        if (($verified['amount'] ?? null) !== $this->toMinorUnits((string) $plan->price)) {
-            throw ValidationException::withMessages([
-                'amount' => 'Payment amount does not match the selected subscription plan.',
-            ]);
-        }
-
-        /*
-         * A recurring subscription requires a provider plan code.
-         */
-        if (! $plan->paystack_plan_code) {
-            throw ValidationException::withMessages([
-                'plan' => 'The subscription plan is not configured for recurring billing.',
-            ]);
-        }
-
-        /*
-         * Paystack must provide the authorization information
-         * necessary for future automatic charges.
-         */
-        $customerCode = $verified['customer_code'] ?? null;
-        $authorizationCode = $verified['authorization_code'] ?? null;
-
-        if (! $customerCode || ! $authorizationCode) {
-            throw ValidationException::withMessages([
-                'payment' => 'Paystack authorization information is incomplete.',
-            ]);
-        }
-
-        /*
-         * Lock the existing subscription.
-         *
-         * This is particularly important for trial -> paid
-         * transitions and concurrent callbacks.
-         */
-        $subscription = Subscription::query()
-            ->where('business_id', $businessId)
-            ->lockForUpdate()
-            ->first();
-
-        /*
-         * If recurring billing has already been established,
-         * do not create another provider subscription.
-         */
-        if (
-            $subscription &&
-            $subscription->provider_subscription_code
-        ) {
-            if ((string) $subscription->plan_id !== (string) $plan->id) {
-                // Do not silently attach a payment for a different plan to
-                // the existing provider subscription. The checkout guard
-                // prevents new cases; this protects older pending attempts.
-                throw ValidationException::withMessages([
-                    'subscription' => 'This payment cannot change an existing recurring Paystack plan automatically. The payment requires support reconciliation.',
-                ]);
+            if (! $subscription && ! $exactId) {
+                // Only create for a genuinely first checkout; never pick another business subscription implicitly.
+                if (Subscription::query()->where('business_id', $businessId)->exists()) return null;
+                $now = now();
+                $subscription = new Subscription(['business_id' => $businessId]);
+                $subscription->status = 'trial';
             }
+            if (! $subscription || ! in_array($subscription->status, ['trial', 'past_due', 'grace_period'], true)) return null;
+            if (filled($subscription->provider_subscription_code)) return null;
 
-            $payment->forceFill([
-                'subscription_id' => $subscription->id,
-            ])->save();
-
-            return;
-        }
-
-        $now = now();
-
-        $periodEnd = app(\App\Domains\Subscription\Services\SubscriptionPeriodCalculator::class)
-            ->endFor($now, $plan->billing_interval);
-
-        /*
-         * Create the MerchantOS subscription if the business
-         * does not have one yet.
-         */
-        if (! $subscription) {
-            $subscription = Subscription::create([
-                'business_id' => $businessId,
-                'plan_id' => $plan->id,
-                'status' => 'active',
-                'provider' => 'paystack',
-
-                'provider_customer_code' =>
-                $customerCode,
-
-                'provider_authorization_code' =>
-                $authorizationCode,
-
-                'starts_at' => $now,
-                'current_period_start' => $now,
-                'current_period_end' => $periodEnd,
-            ]);
-        } else {
-            /*
-             * Existing trial/past_due/grace subscription.
-             *
-             * Convert it into the newly purchased plan.
-             */
+            $now = now();
             $subscription->forceFill([
                 'plan_id' => $plan->id,
                 'status' => 'active',
                 'provider' => 'paystack',
-
-                'provider_customer_code' =>
-                $customerCode,
-
-                'provider_authorization_code' =>
-                $authorizationCode,
-
-                'starts_at' =>
-                $subscription->starts_at ?? $now,
-
+                'provider_customer_code' => $verified['customer_code'] ?? null,
+                'provider_authorization_code' => $verified['authorization_code'] ?? null,
+                'starts_at' => $subscription->starts_at ?? $now,
                 'current_period_start' => $now,
-                'current_period_end' => $periodEnd,
-
+                'current_period_end' => app(SubscriptionPeriodCalculator::class)->endFor($now, $plan->billing_interval),
+                'provisioning_status' => 'pending',
                 'grace_period_ends_at' => null,
                 'cancelled_at' => null,
                 'ended_at' => null,
             ])->save();
+            $payment->forceFill(['subscription_id' => $subscription->id])->save();
+            $business = Business::query()->whereKey($businessId)->lockForUpdate()->firstOrFail();
+            $this->businessVatService->applyDefault($business, $plan);
+            return $subscription->fresh();
+        });
 
-            $subscription->refresh();
-        }
-
-        /*
-         * Apply the selected plan's default VAT setting.
-         * The merchant can change this later from Settings.
-         */
-        $business = Business::query()
-            ->whereKey($businessId)
-            ->lockForUpdate()
-            ->firstOrFail();
-
-        $this->businessVatService->applyDefault(
-            $business,
-            $plan
-        );
-
-        /*
-         * Establish recurring billing with Paystack.
-         */
-        $providerSubscription =
-            $this->paymentGateway->createSubscription([
-                'customer_code' => $customerCode,
-                'plan_code' => $plan->paystack_plan_code,
-                'authorization_code' => $authorizationCode,
-            ]);
-
-        /*
-         * Paystack must return a provider subscription code.
-         */
-        if (
-            ! ($providerSubscription['success'] ?? false) ||
-            empty($providerSubscription['subscription_code'])
-        ) {
-            throw ValidationException::withMessages([
-                'payment' => 'Unable to create the recurring subscription.',
-            ]);
-        }
-
-        /*
-         * Persist all provider identifiers required for
-         * future billing management.
-         */
-        $subscription->forceFill([
-            'provider_customer_code' =>
-            $providerSubscription['customer_code']
-                ?? $customerCode,
-
-            'provider_authorization_code' =>
-            $authorizationCode,
-
-            'provider_subscription_code' =>
-            $providerSubscription['subscription_code'],
-
-            'provider_email_token' =>
-            $providerSubscription['email_token']
-                ?? null,
-        ])->save();
-
-        /*
-         * Associate the successful payment with its subscription.
-         */
-        $payment->forceFill([
-            'subscription_id' => $subscription->id,
-        ])->save();
+        if (! $subscription) return;
+        // Missing authorization is represented by the provisioner's manual review state.
+        try { $this->provisioningService->provision($subscription); } catch (Throwable) { /* Never un-capture a valid payment. */ }
     }
 
-    /**
-     * Convert a major-unit amount into minor units.
-     *
-     * Example:
-     * 10,000.00 NGN -> 1,000,000 kobo.
-     */
     private function toMinorUnits(string $amount): int
     {
-        $normalized = number_format(
-            (float) $amount,
-            2,
-            '.',
-            ''
-        );
-
-        [$whole, $decimal] = array_pad(
-            explode('.', $normalized, 2),
-            2,
-            '00'
-        );
-
-        return (
-            ((int) $whole * 100)
-            + (int) str_pad(
-                substr($decimal, 0, 2),
-                2,
-                '0'
-            )
-        );
+        $normalized = number_format((float) $amount, 2, '.', '');
+        [$whole, $fraction] = array_pad(explode('.', $normalized, 2), 2, '00');
+        return ((int) $whole * 100) + (int) substr(str_pad($fraction, 2, '0'), 0, 2);
     }
 }

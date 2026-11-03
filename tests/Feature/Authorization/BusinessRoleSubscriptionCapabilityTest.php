@@ -5,11 +5,13 @@ namespace Tests\Feature\Authorization;
 use App\Domains\Identity\Services\RoleService;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
+use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Models\User;
 use Database\Seeders\PermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use Tests\TestCase;
 
 class BusinessRoleSubscriptionCapabilityTest extends TestCase
@@ -207,6 +209,10 @@ class BusinessRoleSubscriptionCapabilityTest extends TestCase
         $this->assertTrue($manager->can('subscription.manage'));
 
         $this->actingAs($manager);
+
+        $gateway = Mockery::mock(PaymentGateway::class);
+        $gateway->shouldReceive('initialize')->never();
+        $this->app->instance(PaymentGateway::class, $gateway);
 
         $checkout = $this
             ->withBusiness($business)

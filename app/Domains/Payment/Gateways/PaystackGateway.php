@@ -156,6 +156,11 @@ class PaystackGateway implements PaymentGateway
                 'customer.customer_code'
             ),
 
+            'customer_id' =>
+            data_get($data, 'customer.id') !== null
+                ? (int) data_get($data, 'customer.id')
+                : null,
+
             'raw' => $payload,
         ];
     }
@@ -220,6 +225,101 @@ class PaystackGateway implements PaymentGateway
 
             'raw' => $payload,
         ];
+    }
+
+    /**
+     * Fetch a Paystack plan by numeric ID or plan code.
+     * @return array{success: bool, data: array, raw: array}
+     */
+    public function fetchPlan(string $identifier): array
+    {
+        return $this->getResource('/plan/' . rawurlencode($identifier), 'Unable to fetch Paystack plan.');
+    }
+
+    /**
+     * List Paystack subscriptions. Pagination is intentionally bounded.
+     * @param array{perPage?: int, page?: int, customer?: int, plan?: int} $filters
+     * @return array{success: bool, data: array, meta: array, raw: array}
+     */
+    public function listSubscriptions(array $filters = []): array
+    {
+        $allowed = ['perPage', 'page', 'customer', 'plan'];
+        $unknown = array_diff(array_keys($filters), $allowed);
+        if ($unknown !== []) {
+            throw new RuntimeException('Unsupported Paystack subscription list filter: ' . implode(', ', $unknown));
+        }
+
+        $perPage = (int) ($filters['perPage'] ?? 50);
+        $page = (int) ($filters['page'] ?? 1);
+        if ($perPage < 1 || $perPage > 100 || $page < 1) {
+            throw new RuntimeException('Paystack subscription pagination values are invalid.');
+        }
+
+        $query = ['perPage' => $perPage, 'page' => $page];
+        foreach (['customer', 'plan'] as $key) {
+            if (array_key_exists($key, $filters)) {
+                $value = filter_var($filters[$key], FILTER_VALIDATE_INT);
+                if ($value === false || $value < 1) {
+                    throw new RuntimeException("Paystack subscription {$key} filter must be a positive integer.");
+                }
+                $query[$key] = $value;
+            }
+        }
+
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->acceptJson()->connectTimeout(5)->timeout(15)
+                ->get($this->baseUrl . '/subscription', $query)->throw();
+        } catch (RequestException $exception) {
+            throw new RuntimeException('Unable to list Paystack subscriptions.', previous: $exception);
+        }
+
+        $payload = $response->json();
+        if (! ($payload['status'] ?? false)) {
+            throw new RuntimeException($payload['message'] ?? 'Paystack subscription listing failed.');
+        }
+        $data = $payload['data'] ?? [];
+        if (! is_array($data)) {
+            throw new RuntimeException('Paystack returned an invalid subscription list.');
+        }
+
+        return [
+            'success' => true,
+            'data' => $data,
+            'meta' => is_array($payload['meta'] ?? null) ? $payload['meta'] : [],
+            'raw' => $payload,
+        ];
+    }
+
+    /**
+     * Fetch a Paystack subscription by numeric ID or subscription code.
+     * @return array{success: bool, data: array, raw: array}
+     */
+    public function fetchSubscription(string $identifier): array
+    {
+        return $this->getResource('/subscription/' . rawurlencode($identifier), 'Unable to fetch Paystack subscription.');
+    }
+
+    /** @return array{success: bool, data: array, raw: array} */
+    private function getResource(string $path, string $failureMessage): array
+    {
+        try {
+            $response = Http::withToken($this->secretKey)
+                ->acceptJson()->connectTimeout(5)->timeout(15)
+                ->get($this->baseUrl . $path)->throw();
+        } catch (RequestException $exception) {
+            throw new RuntimeException($failureMessage, previous: $exception);
+        }
+
+        $payload = $response->json();
+        if (! ($payload['status'] ?? false)) {
+            throw new RuntimeException($payload['message'] ?? $failureMessage);
+        }
+        $data = $payload['data'] ?? [];
+        if (! is_array($data)) {
+            throw new RuntimeException('Paystack returned an invalid resource response.');
+        }
+        return ['success' => true, 'data' => $data, 'raw' => $payload];
     }
 
     /**
