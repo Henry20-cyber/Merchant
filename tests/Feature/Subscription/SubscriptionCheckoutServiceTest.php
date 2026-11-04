@@ -156,6 +156,66 @@ class SubscriptionCheckoutServiceTest extends TestCase
             ->toBe($plan->id);
     }
 
+    public function test_active_free_subscription_can_checkout_paid_monthly_and_annual_plans(): void
+    {
+        $free = SubscriptionPlan::factory()->create([
+            'slug' => 'free',
+            'price' => '0.00',
+            'paystack_plan_code' => null,
+        ]);
+
+        $paidPlans = [
+            SubscriptionPlan::factory()->create([
+                'name' => 'Starter Monthly',
+                'slug' => 'starter-monthly',
+                'price' => '3000.00',
+                'currency' => 'NGN',
+                'billing_interval' => 'monthly',
+                'paystack_plan_code' => 'PLN_test_starter_monthly',
+                'is_active' => true,
+            ]),
+            SubscriptionPlan::factory()->create([
+                'name' => 'Starter Annual',
+                'slug' => 'starter-annual',
+                'price' => '33000.00',
+                'currency' => 'NGN',
+                'billing_interval' => 'yearly',
+                'paystack_plan_code' => 'PLN_test_starter_annual',
+                'is_active' => true,
+            ]),
+        ];
+
+        foreach ($paidPlans as $plan) {
+            $business = $this->makeBusiness();
+            $actor = $this->makeBillingActor($business);
+            $subscription = Subscription::create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active']);
+            $gateway = $this->gatewayMock();
+            $gateway->shouldReceive('initialize')->once()->andReturn([
+                'success' => true, 'authorization_url' => 'https://checkout.paystack.com/test', 'access_code' => 'test',
+            ]);
+
+            $result = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com');
+            $payment = Payment::where('business_id', $business->id)->firstOrFail();
+            expect($result['payment_id'])->toBe($payment->id)
+                ->and($payment->status)->toBe('pending')
+                ->and($payment->subscription_id)->toBe($subscription->id)
+                ->and($subscription->fresh()->plan_id)->toBe($free->id);
+        }
+    }
+
+    public function test_active_subscription_with_non_free_zero_price_plan_is_rejected(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $freeish = SubscriptionPlan::factory()->create(['slug' => 'trial', 'price' => '0.00']);
+        Subscription::create(['business_id' => $business->id, 'plan_id' => $freeish->id, 'status' => 'active']);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout($actor, $business, $this->makePlan(), 'merchant@example.com'))
+            ->toThrow(ValidationException::class);
+        expect(Payment::where('business_id', $business->id)->exists())->toBeFalse();
+    }
+
     public function test_checkout_uses_plan_price(): void
     {
         $business = $this->makeBusiness();

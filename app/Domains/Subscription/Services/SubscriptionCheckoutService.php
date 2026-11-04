@@ -72,13 +72,18 @@ class SubscriptionCheckoutService
                 ]);
             }
 
-            /*
-             * Never replace an active subscription, even if it is a legacy
-             * manual subscription without Paystack identifiers.
-             */
+            // An active subscription is replaceable through ordinary checkout
+            // only when its current plan is explicitly the free plan. Treat a
+            // missing/legacy plan as paid so inconsistent records stay guarded.
+            $currentPlanIsFree = $subscription !== null
+                && $subscription->status === 'active'
+                && $subscription->plan !== null
+                && $subscription->plan->slug === 'free'
+                && preg_match('/^0+(?:\.0+)?$/', (string) $subscription->plan->price) === 1;
+
             if (
-                $subscription?->status === 'active' ||
-                $subscription?->provider_subscription_code
+                ($subscription?->status === 'active' && ! $currentPlanIsFree) ||
+                filled($subscription?->provider_subscription_code)
             ) {
                 throw ValidationException::withMessages([
                     'subscription' => 'A subscription is already active or has recurring billing configured. Plan changes are temporarily unavailable; contact support before making another payment.',
