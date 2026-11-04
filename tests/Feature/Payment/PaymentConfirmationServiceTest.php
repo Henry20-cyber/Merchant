@@ -573,6 +573,46 @@ class PaymentConfirmationServiceTest extends TestCase
             ->and($subscription->fresh()->status)->toBe('active');
     }
 
+    public function test_successful_payment_with_missing_captured_currency_is_paid_but_held_for_review(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $payment = $this->createPayment($business, $plan, 'PAYMENT-MISSING-CAPTURED-CURRENCY');
+        $metadata = $payment->metadata;
+        unset($metadata['currency']);
+        $payment->forceFill(['metadata' => $metadata])->save();
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)
+            ->andReturn($this->successfulVerification($payment));
+        $this->provisioner->shouldNotReceive('provision');
+
+        $confirmed = app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($confirmed->status)->toBe('paid')
+            ->and($confirmed->metadata['entitlement_review'])->toContain('incomplete')
+            ->and(Subscription::query()->where('business_id', $business->id)->exists())->toBeFalse();
+    }
+
+    public function test_payment_terms_changed_during_provider_verification_are_not_captured(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $payment = $this->createPayment($business, $plan, 'PAYMENT-IDENTITY-CHANGED-DURING-VERIFY');
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturnUsing(
+            function () use ($payment): array {
+                Payment::query()->whereKey($payment->id)->update(['amount' => '11000.00']);
+
+                return $this->successfulVerification($payment);
+            },
+        );
+
+        expect(fn () => app(PaymentConfirmationService::class)->confirm($payment->reference))
+            ->toThrow(ValidationException::class);
+
+        expect($payment->fresh()->status)->toBe('pending')
+            ->and($payment->fresh()->amount)->toBe('11000.00')
+            ->and(Subscription::query()->where('business_id', $business->id)->exists())->toBeFalse();
+    }
+
     /**
      * Monthly subscription receives a one-month period.
      */
@@ -1132,7 +1172,8 @@ class PaymentConfirmationServiceTest extends TestCase
         app(PaymentConfirmationService::class)->confirm($payment->reference);
 
         expect($payment->fresh()->status)->toBe('paid');
-        expect(Subscription::query()->where('business_id', $business->id)->first()->provisioning_status)->toBe('manual_review');
+        expect(Subscription::query()->where('business_id', $business->id)->first()->provisioning_status)
+            ->toBe('manual_review');
     }
 
     /**
@@ -1171,7 +1212,8 @@ class PaymentConfirmationServiceTest extends TestCase
         app(PaymentConfirmationService::class)->confirm($payment->reference);
 
         expect($payment->fresh()->status)->toBe('paid');
-        expect(Subscription::query()->where('business_id', $business->id)->first()->provisioning_status)->toBe('manual_review');
+        expect($payment->fresh()->metadata['entitlement_review'])->toContain('incomplete')
+            ->and(Subscription::query()->where('business_id', $business->id)->exists())->toBeFalse();
     }
 
     public function test_provisioning_exception_does_not_roll_back_paid_payment_or_local_subscription(): void

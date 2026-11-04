@@ -28,7 +28,7 @@ class ReconcileSubscriptionCheckoutPayments extends Command
             ->where('metadata->type', 'subscription')
             ->where('created_at', '<=', now()->subMinutes(5))
             ->where('reconciliation_attempts', '<', self::MAX_ATTEMPTS)
-            ->where(fn ($query) => $query->whereNull('next_reconciliation_at')->orWhere('next_reconciliation_at', '<=', now()))
+            ->where(fn($query) => $query->whereNull('next_reconciliation_at')->orWhere('next_reconciliation_at', '<=', now()))
             ->whereNotNull('reference')
             ->orderBy('created_at')
             ->limit($limit)
@@ -40,19 +40,8 @@ class ReconcileSubscriptionCheckoutPayments extends Command
         foreach ($ids as $id) {
             $payment = Payment::query()->find($id);
             if (! $payment) continue;
-            $attempt = ((int) $payment->reconciliation_attempts) + 1;
-            $nextAt = now()->addMinutes(self::RETRY_MINUTES[min($attempt - 1, count(self::RETRY_MINUTES) - 1)]);
-            $claimed = Payment::query()
-                ->whereKey($id)
-                ->where('status', 'pending')
-                ->where('reconciliation_attempts', '<', self::MAX_ATTEMPTS)
-                ->where(fn ($query) => $query->whereNull('next_reconciliation_at')->orWhere('next_reconciliation_at', '<=', now()))
-                ->update([
-                    'reconciliation_attempts' => DB::raw('reconciliation_attempts + 1'),
-                    'next_reconciliation_at' => $nextAt,
-                    'updated_at' => now(),
-                ]);
-            if ($claimed !== 1) continue;
+            $attempt = $this->claimPayment($payment);
+            if ($attempt === null) continue;
             $checked++;
 
             try {
@@ -83,5 +72,27 @@ class ReconcileSubscriptionCheckoutPayments extends Command
 
         $this->info("Checked: {$checked}; reconciled: {$reconciled}; unresolved: {$unresolved}.");
         return self::SUCCESS;
+    }
+
+    private function claimPayment(Payment $payment): ?int
+    {
+        $attempt = ((int) $payment->reconciliation_attempts) + 1;
+        $nextAt = now()->addMinutes(self::RETRY_MINUTES[min($attempt - 1, count(self::RETRY_MINUTES) - 1)]);
+        $claimed = Payment::query()
+            ->whereKey($payment->id)
+            ->where('method', 'paystack')
+            ->where('status', 'pending')
+            ->where('metadata->type', 'subscription')
+            ->where('created_at', '<=', now()->subMinutes(5))
+            ->where('reconciliation_attempts', '<', self::MAX_ATTEMPTS)
+            ->where(fn($query) => $query->whereNull('next_reconciliation_at')->orWhere('next_reconciliation_at', '<=', now()))
+            ->whereNotNull('reference')
+            ->update([
+                'reconciliation_attempts' => DB::raw('reconciliation_attempts + 1'),
+                'next_reconciliation_at' => $nextAt,
+                'updated_at' => now(),
+            ]);
+
+        return $claimed === 1 ? $attempt : null;
     }
 }

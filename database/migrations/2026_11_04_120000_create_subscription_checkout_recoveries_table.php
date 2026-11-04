@@ -60,25 +60,10 @@ return new class extends Migration
                     $metadata = is_array($payment->metadata)
                         ? $payment->metadata
                         : (json_decode((string) $payment->metadata, true) ?: []);
-                    $planId = $metadata['plan_id'] ?? null;
-                    if ($planId !== null
-                        && ! DB::table('subscription_plans')->where('id', $planId)->exists()) {
-                        $planId = null;
-                    }
-                    $termsComplete = filled($planId)
-                        && filled($metadata['billing_interval'] ?? null)
-                        && array_key_exists('currency', $metadata)
-                        && array_key_exists('paystack_plan_code', $metadata);
+                    $planId = $this->existingPlanId($metadata['plan_id'] ?? null);
+                    $termsComplete = $this->hasCompletePurchaseTerms($planId, $metadata);
                     $recoveryId = (string) Str::uuid();
-                    $recoveryStatus = match ($payment->status) {
-                        'paid' => 'succeeded',
-                        'failed' => 'retryable',
-                        'pending' => 'pending',
-                        default => 'manual_review',
-                    };
-                    if ($payment->status === 'paid' && ! $termsComplete) {
-                        $recoveryStatus = 'manual_review';
-                    }
+                    $recoveryStatus = $this->legacyRecoveryStatus($payment->status, $termsComplete);
 
                     DB::table('subscription_checkout_recoveries')->insert([
                         'id' => $recoveryId,
@@ -143,5 +128,39 @@ return new class extends Migration
         });
 
         Schema::dropIfExists('subscription_checkout_recoveries');
+    }
+
+    private function existingPlanId(mixed $candidate): ?string
+    {
+        if (! is_string($candidate)
+            || preg_match('/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/iD', $candidate) !== 1
+            || ! DB::table('subscription_plans')->where('id', $candidate)->exists()) {
+            return null;
+        }
+
+        return $candidate;
+    }
+
+    /** @param array<string, mixed> $metadata */
+    private function hasCompletePurchaseTerms(?string $planId, array $metadata): bool
+    {
+        return filled($planId)
+            && filled($metadata['billing_interval'] ?? null)
+            && filled($metadata['currency'] ?? null)
+            && filled($metadata['paystack_plan_code'] ?? null);
+    }
+
+    private function legacyRecoveryStatus(string $paymentStatus, bool $termsComplete): string
+    {
+        if ($paymentStatus === 'paid' && ! $termsComplete) {
+            return 'manual_review';
+        }
+
+        return match ($paymentStatus) {
+            'paid' => 'succeeded',
+            'failed' => 'retryable',
+            'pending' => 'pending',
+            default => 'manual_review',
+        };
     }
 };

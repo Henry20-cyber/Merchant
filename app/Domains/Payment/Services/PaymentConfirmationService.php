@@ -39,6 +39,7 @@ class PaymentConfirmationService
             throw ValidationException::withMessages(['payment' => 'Only pending payments can be confirmed.']);
         }
 
+        $verifiedPaymentIdentity = $this->paymentIdentitySnapshot($payment);
         // Network verification and all validation happen before any transaction.
         $verified = $this->paymentGateway->verify($reference);
         if (! ($verified['success'] ?? false)) {
@@ -50,8 +51,12 @@ class PaymentConfirmationService
         $plan = null;
         if (($payment->metadata['type'] ?? null) === 'subscription') {
             $plan = SubscriptionPlan::query()->whereKey($payment->metadata['plan_id'] ?? null)->first();
-            $expectedCurrency = strtoupper((string) ($payment->metadata['currency'] ?? $plan?->currency ?? 'NGN'));
-            if (strtoupper((string) ($verified['currency'] ?? '')) !== $expectedCurrency) {
+            $capturedCurrency = $payment->metadata['currency'] ?? null;
+            $providerCurrency = strtoupper((string) ($verified['currency'] ?? ''));
+            if ($providerCurrency === '') {
+                throw ValidationException::withMessages(['currency' => 'Provider response did not include a currency.']);
+            }
+            if (filled($capturedCurrency) && $providerCurrency !== strtoupper((string) $capturedCurrency)) {
                 throw ValidationException::withMessages(['currency' => 'Payment currency does not match the subscription plan.']);
             }
         } else {
@@ -63,8 +68,9 @@ class PaymentConfirmationService
         }
         if (($verified['status'] ?? null) !== 'success') {
             if (! in_array($verified['status'] ?? null, ['failed', 'abandoned'], true)) {
-                return DB::transaction(function () use ($reference, $verified): Payment {
+                return DB::transaction(function () use ($reference, $verified, $verifiedPaymentIdentity): Payment {
                     $locked = Payment::query()->where('reference', $reference)->lockForUpdate()->firstOrFail();
+                    $this->assertPaymentIdentityUnchanged($locked, $verifiedPaymentIdentity);
                     if (in_array($locked->status, ['pending', 'failed'], true)) {
                         $providerStatus = is_string($verified['status'] ?? null) ? $verified['status'] : null;
                         $locked->forceFill([
@@ -89,8 +95,9 @@ class PaymentConfirmationService
                     return $locked->fresh();
                 });
             }
-            return DB::transaction(function () use ($reference, $verified): Payment {
+            return DB::transaction(function () use ($reference, $verified, $verifiedPaymentIdentity): Payment {
                 $locked = Payment::query()->where('reference', $reference)->lockForUpdate()->firstOrFail();
+                $this->assertPaymentIdentityUnchanged($locked, $verifiedPaymentIdentity);
                 if (in_array($locked->status, ['pending', 'failed'], true)) {
                     $locked->forceFill([
                         'last_provider_status' => $verified['status'],
@@ -131,13 +138,20 @@ class PaymentConfirmationService
         }
 
         // Capture and any safe local entitlement transition share one transaction.
-        [$payment, $subscription] = DB::transaction(function () use ($reference, $verified, $plan, $payment): array {
+        [$payment, $subscription] = DB::transaction(function () use (
+            $reference,
+            $verified,
+            $plan,
+            $payment,
+            $verifiedPaymentIdentity,
+        ): array {
             $business = Business::query()->whereKey($payment->business_id)->lockForUpdate()->firstOrFail();
             $locked = Payment::query()->where('reference', $reference)->lockForUpdate()->firstOrFail();
+            if ($locked->status === 'paid') return [$locked->fresh(), null];
+            $this->assertPaymentIdentityUnchanged($locked, $verifiedPaymentIdentity);
             if ((string) $locked->business_id !== (string) $business->id) {
                 throw ValidationException::withMessages(['payment' => 'Payment business changed during confirmation.']);
             }
-            if ($locked->status === 'paid') return [$locked->fresh(), null];
             if (! in_array($locked->status, ['pending', 'failed'], true)) {
                 throw ValidationException::withMessages(['payment' => 'Only pending payments can be confirmed.']);
             }
@@ -179,8 +193,10 @@ class PaymentConfirmationService
                 if ((string) ($metadata['business_id'] ?? '') !== $businessId) {
                     $entitlementReview = 'Payment business does not match captured checkout business.';
                 } elseif (! $plan
+                    || ! filled($metadata['currency'] ?? null)
                     || empty($metadata['billing_interval'])
-                    || ! array_key_exists('paystack_plan_code', $metadata)
+                    || ! filled($metadata['paystack_plan_code'] ?? null)
+                    || ! filled($plan->paystack_plan_code)
                     || (string) $metadata['paystack_plan_code'] !== (string) $plan->paystack_plan_code) {
                     $entitlementReview = 'Captured subscription terms are incomplete or differ from the current plan.';
                 } elseif ($locked->subscription_id !== null
@@ -306,5 +322,42 @@ class PaymentConfirmationService
         $normalized = number_format((float) $amount, 2, '.', '');
         [$whole, $fraction] = array_pad(explode('.', $normalized, 2), 2, '00');
         return ((int) $whole * 100) + (int) substr(str_pad($fraction, 2, '0'), 0, 2);
+    }
+
+    private function assertPaymentIdentityUnchanged(Payment $payment, string $verifiedIdentity): void
+    {
+        if (! hash_equals($verifiedIdentity, $this->paymentIdentitySnapshot($payment))) {
+            throw ValidationException::withMessages([
+                'payment' => 'Payment details changed during provider verification. Reconcile the transaction before continuing.',
+            ]);
+        }
+    }
+
+    private function paymentIdentitySnapshot(Payment $payment): string
+    {
+        $metadata = $payment->metadata ?? [];
+        $capturedTerms = [];
+        foreach ([
+            'type', 'business_id', 'subscription_id', 'plan_id', 'plan_slug',
+            'billing_interval', 'currency', 'paystack_plan_code',
+        ] as $key) {
+            $capturedTerms[$key] = [
+                'present' => array_key_exists($key, $metadata),
+                'value' => $metadata[$key] ?? null,
+            ];
+        }
+
+        return hash('sha256', json_encode([
+            'id' => (string) $payment->id,
+            'business_id' => (string) $payment->business_id,
+            'sale_id' => $payment->sale_id === null ? null : (string) $payment->sale_id,
+            'subscription_id' => $payment->subscription_id === null ? null : (string) $payment->subscription_id,
+            'amount' => (string) $payment->amount,
+            'method' => (string) $payment->method,
+            'reference' => (string) $payment->reference,
+            'checkout_recovery_id' => $payment->checkout_recovery_id === null ? null : (string) $payment->checkout_recovery_id,
+            'attempt_number' => $payment->attempt_number === null ? null : (int) $payment->attempt_number,
+            'metadata' => $capturedTerms,
+        ], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
     }
 }
