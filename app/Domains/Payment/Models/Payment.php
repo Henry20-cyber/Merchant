@@ -27,6 +27,12 @@ class Payment extends Model
         'reference',
         'metadata',
         'paid_at',
+        'checkout_recovery_id',
+        'attempt_number',
+        'reconciliation_attempts',
+        'next_reconciliation_at',
+        'last_provider_status',
+        'last_provider_checked_at',
     ];
 
     protected function casts(): array
@@ -35,6 +41,9 @@ class Payment extends Model
             'amount' => 'decimal:2',
             'metadata' => 'array',
             'paid_at' => 'datetime',
+            'next_reconciliation_at' => 'datetime',
+            'reconciliation_attempts' => 'integer',
+            'last_provider_checked_at' => 'datetime',
             'created_at' => 'datetime',
             'updated_at' => 'datetime',
         ];
@@ -68,5 +77,10 @@ class Payment extends Model
         return $this->belongsTo(
             Subscription::class
         );
+    }
+
+    public function checkoutRecovery(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionCheckoutRecovery::class, 'checkout_recovery_id');
     }
 }

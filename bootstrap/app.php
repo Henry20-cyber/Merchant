@@ -16,6 +16,7 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
+    ->withCommands()
 
     /*
     |--------------------------------------------------------------------------
@@ -32,6 +33,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $schedule->command('payment:webhooks:process-due')
             ->everyMinute()
+            ->withoutOverlapping(30);
+
+        $schedule->command('payments:reconcile-subscription-checkouts --limit=50')
+            ->everyFifteenMinutes()
             ->withoutOverlapping(30);
     })
 

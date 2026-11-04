@@ -218,11 +218,23 @@ class SubscriptionController
             $business,
             $plan,
             $request->validated('email'),
+            $request->validated('recovery_id'),
         );
 
         return response()->json([
             'success' => true,
-            'message' => 'Subscription checkout initialized successfully.',
+            'message' => match ($result['outcome'] ?? null) {
+                'succeeded' => 'Subscription payment was confirmed successfully.',
+                'manual_review' => 'Payment was received and requires support review before subscription access can be confirmed.',
+                'session_expired' => 'The checkout session expired. You can start a new payment attempt.',
+                'abandoned' => 'The previous checkout was abandoned. You can start a new payment attempt.',
+                'failed' => 'The previous payment failed. You can retry checkout.',
+                'reconciling' => 'The payment is still being reconciled. No new charge was started.',
+                'pending' => ! empty($result['resumed'])
+                    ? 'The original checkout is still pending. No new transaction was initialized.'
+                    : 'Checkout was initialized and payment is pending.',
+                default => 'Subscription checkout initialized successfully.',
+            },
             'data' => $result,
         ]);
     }

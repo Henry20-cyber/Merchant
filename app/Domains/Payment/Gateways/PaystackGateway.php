@@ -144,6 +144,10 @@ class PaystackGateway implements PaymentGateway
             'currency' =>
             $data['currency'] ?? null,
 
+            'gateway_response' => $data['gateway_response'] ?? null,
+
+            'message' => $data['message'] ?? null,
+
             'authorization_code' =>
             data_get(
                 $data,

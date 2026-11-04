@@ -9,6 +9,8 @@ use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
+use App\Domains\Payment\Models\SubscriptionCheckoutRecovery;
+use App\Domains\Payment\Services\PaystackSubscriptionProvisioningService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Subscription\Services\SubscriptionCheckoutService;
@@ -118,11 +120,11 @@ class SubscriptionCheckoutServiceTest extends TestCase
         $gateway
             ->shouldReceive('initialize')
             ->once()
-            ->andReturn([
+            ->andReturnUsing(fn (array $data) => [
                 'success' => true,
                 'authorization_url' => 'https://checkout.paystack.com/test',
                 'access_code' => 'test_access_code',
-                'reference' => 'MERCHANTOS-TEST',
+                'reference' => $data['reference'],
                 'raw' => [],
             ]);
 
@@ -154,6 +156,9 @@ class SubscriptionCheckoutServiceTest extends TestCase
 
         expect($payment->metadata['plan_id'])
             ->toBe($plan->id);
+        expect($payment->checkout_recovery_id)->not->toBeNull()
+            ->and($payment->attempt_number)->toBe(1)
+            ->and($result['recovery_id'])->toBe($payment->checkout_recovery_id);
     }
 
     public function test_active_free_subscription_can_checkout_paid_monthly_and_annual_plans(): void
@@ -190,8 +195,8 @@ class SubscriptionCheckoutServiceTest extends TestCase
             $actor = $this->makeBillingActor($business);
             $subscription = Subscription::create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active']);
             $gateway = $this->gatewayMock();
-            $gateway->shouldReceive('initialize')->once()->andReturn([
-                'success' => true, 'authorization_url' => 'https://checkout.paystack.com/test', 'access_code' => 'test',
+            $gateway->shouldReceive('initialize')->once()->andReturnUsing(fn (array $data) => [
+                'success' => true, 'authorization_url' => 'https://checkout.paystack.com/test', 'access_code' => 'test', 'reference' => $data['reference'],
             ]);
 
             $result = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com');
@@ -234,11 +239,11 @@ class SubscriptionCheckoutServiceTest extends TestCase
             ->with(Mockery::on(function (array $data) {
                 return $data['amount'] === 1250000;
             }))
-            ->andReturn([
+            ->andReturnUsing(fn (array $data) => [
                 'success' => true,
                 'authorization_url' => 'https://checkout.paystack.com/test',
                 'access_code' => 'test',
-                'reference' => 'MERCHANTOS-TEST',
+                'reference' => $data['reference'],
                 'raw' => [],
             ]);
 
@@ -372,11 +377,11 @@ class SubscriptionCheckoutServiceTest extends TestCase
         $gateway
             ->shouldReceive('initialize')
             ->once()
-            ->andReturn([
+            ->andReturnUsing(fn (array $data) => [
                 'success' => true,
                 'authorization_url' => 'https://checkout.paystack.com/test',
                 'access_code' => 'test',
-                'reference' => 'MERCHANTOS-TEST',
+                'reference' => $data['reference'],
                 'raw' => [],
             ]);
 
@@ -459,11 +464,11 @@ class SubscriptionCheckoutServiceTest extends TestCase
         ->with(Mockery::on(function (array $data) {
             return $data['amount'] === 300000;
         }))
-        ->andReturn([
+        ->andReturnUsing(fn (array $data) => [
             'success' => true,
             'authorization_url' => 'https://checkout.paystack.com/test',
             'access_code' => 'test',
-            'reference' => 'MERCHANTOS-TEST',
+            'reference' => $data['reference'],
             'raw' => [],
         ]);
 
@@ -499,11 +504,11 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
         ->with(Mockery::on(function (array $data) {
             return $data['amount'] === 3000000;
         }))
-        ->andReturn([
+        ->andReturnUsing(fn (array $data) => [
             'success' => true,
             'authorization_url' => 'https://checkout.paystack.com/test',
             'access_code' => 'test',
-            'reference' => 'MERCHANTOS-TEST',
+            'reference' => $data['reference'],
             'raw' => [],
         ]);
 
@@ -552,7 +557,7 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
         expect(Payment::where('business_id', $business->id)->count())->toBe(0);
     }
 
-    public function test_checkout_rejects_second_pending_subscription_payment(): void
+    public function test_checkout_recovers_existing_pending_payment_without_initializing_another(): void
     {
         $business = $this->makeBusiness();
         $actor = $this->makeBillingActor($business);
@@ -574,20 +579,363 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
         ]);
 
         $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->with('MERCHANTOS-PENDING-CHECKOUT-EXISTING')->andReturn([
+            'success' => true,
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-PENDING-CHECKOUT-EXISTING',
+            'amount' => 1000000,
+            'currency' => 'NGN',
+        ]);
         $gateway->shouldNotReceive('initialize');
 
-        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+        $result = app(SubscriptionCheckoutService::class)->checkout(
             $actor,
             $business,
             $plan,
             'merchant@example.com'
-        ))->toThrow(ValidationException::class);
+        );
+
+        expect($result['status'])->toBe('pending')
+            ->and($result['reconciling'])->toBeTrue();
 
         expect(
             Payment::where('business_id', $business->id)
                 ->where('status', 'pending')
                 ->count()
         )->toBe(1);
+    }
+
+    public function test_pending_checkout_returns_stored_session_without_claiming_it_is_verified_usable(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-PENDING-WITH-URL',
+            'metadata' => [
+                'type' => 'subscription',
+                'business_id' => $business->id,
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'billing_interval' => $plan->billing_interval,
+                'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'checkout' => [
+                    'authorization_url' => 'https://checkout.paystack.com/original-session',
+                    'access_code' => 'original-access',
+                ],
+            ],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->andReturn([
+            'success' => true, 'status' => 'pending', 'reference' => 'MERCHANTOS-PENDING-WITH-URL',
+            'amount' => 1000000, 'currency' => 'NGN',
+        ]);
+        $gateway->shouldNotReceive('initialize');
+
+        $result = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com');
+
+        expect($result['authorization_url'])->toBe('https://checkout.paystack.com/original-session')
+            ->and($result['access_code'])->toBe('original-access')
+            ->and($result['resume_possible'])->toBeNull()
+            ->and($result['session_state'])->toBe('stored_unverified');
+    }
+
+    public function test_verified_paystack_session_timeout_is_reported_as_expired_and_retryable(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-EXPIRED-SESSION',
+            'metadata' => [
+                'type' => 'subscription',
+                'business_id' => $business->id,
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'billing_interval' => $plan->billing_interval,
+                'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code,
+            ],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->andReturn([
+            'success' => true,
+            'status' => 'failed',
+            'reference' => 'MERCHANTOS-EXPIRED-SESSION',
+            'amount' => 1000000,
+            'currency' => 'NGN',
+            'gateway_response' => 'Transaction cannot be completed. Session timeout exceeded.',
+        ]);
+        $gateway->shouldNotReceive('initialize');
+
+        $result = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com');
+
+        expect($result['status'])->toBe('failed')
+            ->and($result['outcome'])->toBe('session_expired')
+            ->and($result['session_expired'])->toBeTrue()
+            ->and($result['retry_available'])->toBeTrue();
+    }
+
+    public function test_checkout_rejects_missing_initialization_reference_without_creating_another_attempt(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('initialize')->once()->andReturn([
+            'success' => true,
+            'authorization_url' => 'https://checkout.paystack.com/test',
+            'access_code' => 'access',
+            'reference' => null,
+        ]);
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com'))
+            ->toThrow(\RuntimeException::class);
+        expect(Payment::where('business_id', $business->id)->where('status', 'pending')->count())->toBe(1)
+            ->and(Payment::where('business_id', $business->id)->where('status', 'paid')->count())->toBe(0);
+    }
+
+    public function test_checkout_rejects_mismatched_initialization_reference_without_retrying_initialization(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('initialize')->once()->andReturn([
+            'success' => true,
+            'authorization_url' => 'https://checkout.paystack.com/test',
+            'access_code' => 'access',
+            'reference' => 'MERCHANTOS-WRONG-REFERENCE',
+        ]);
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com'))
+            ->toThrow(\RuntimeException::class);
+        expect(Payment::where('business_id', $business->id)->where('status', 'pending')->count())->toBe(1)
+            ->and(Payment::where('business_id', $business->id)->where('status', 'paid')->count())->toBe(0);
+    }
+
+    public function test_definitive_failure_returns_retry_available_and_next_request_creates_new_reference(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        $oldReference = 'MERCHANTOS-RECOVERY-FAILED';
+        $oldPayment = Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => null, 'sale_id' => null,
+            'amount' => $plan->price, 'method' => 'paystack', 'status' => 'pending', 'reference' => $oldReference,
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id, 'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug, 'billing_interval' => $plan->billing_interval, 'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->with($oldReference)->andReturn([
+            'success' => true, 'status' => 'failed', 'reference' => $oldReference, 'amount' => 1000000, 'currency' => 'NGN',
+        ]);
+        $gateway->shouldReceive('initialize')->once()->andReturnUsing(fn (array $data) => [
+            'success' => true, 'authorization_url' => 'https://checkout.paystack.com/new',
+            'access_code' => 'new-access', 'reference' => $data['reference'],
+        ]);
+
+        $firstResponse = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com');
+        expect($firstResponse['status'])->toBe('failed')
+            ->and($firstResponse['retry_available'])->toBeTrue()
+            ->and($oldPayment->fresh()->status)->toBe('failed')
+            ->and(Payment::where('business_id', $business->id)->count())->toBe(1);
+
+        $secondResponse = app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com',
+            $firstResponse['recovery_id'],
+        );
+        $newPayment = Payment::where('business_id', $business->id)->where('id', '<>', $oldPayment->id)->firstOrFail();
+        expect($secondResponse['reference'])->not->toBe($oldReference)
+            ->and(Payment::where('business_id', $business->id)->count())->toBe(2)
+            ->and($newPayment->checkout_recovery_id)->toBe($oldPayment->fresh()->checkout_recovery_id)
+            ->and($newPayment->attempt_number)->toBe(2)
+            ->and($oldPayment->fresh()->checkoutRecovery->status)->toBe('pending');
+    }
+
+    public function test_legacy_failed_attempt_is_reverified_before_a_new_charge(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'amount' => $plan->price,
+                'currency' => 'NGN',
+                'billing_interval' => $plan->billing_interval,
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => null,
+            ],
+            'status' => 'retryable',
+        ]);
+        $oldPayment = Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => null,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'failed',
+            'reference' => 'MERCHANTOS-LEGACY-FAILED-RETRY',
+            'checkout_recovery_id' => $recovery->id,
+            'attempt_number' => 1,
+            'metadata' => [
+                'type' => 'subscription', 'business_id' => $business->id,
+                'plan_id' => $plan->id, 'plan_slug' => $plan->slug,
+                'billing_interval' => $plan->billing_interval, 'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code,
+            ],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->with($oldPayment->reference)->andReturn([
+            'success' => true, 'status' => 'failed', 'reference' => $oldPayment->reference,
+            'amount' => 1000000, 'currency' => 'NGN',
+        ]);
+        $gateway->shouldReceive('initialize')->once()->andReturnUsing(fn (array $data) => [
+            'success' => true, 'authorization_url' => 'https://checkout.paystack.com/retry',
+            'access_code' => 'retry-access', 'reference' => $data['reference'],
+        ]);
+
+        $result = app(SubscriptionCheckoutService::class)->checkout($actor, $business, $plan, 'merchant@example.com', $recovery->id);
+
+        expect($result['reference'])->not->toBe($oldPayment->reference)
+            ->and($oldPayment->fresh()->last_provider_status)->toBe('failed')
+            ->and(Payment::where('checkout_recovery_id', $recovery->id)->count())->toBe(2);
+    }
+
+    public function test_legacy_failed_attempt_that_verifies_as_paid_is_reconciled_without_a_new_charge(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $plan = $this->makePlan();
+        $subscription = Subscription::create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active']);
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'amount' => $plan->price,
+                'currency' => 'NGN',
+                'billing_interval' => $plan->billing_interval,
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => $subscription->id,
+            ],
+            'status' => 'retryable',
+        ]);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'failed',
+            'reference' => 'MERCHANTOS-LATE-VERIFIED-SUCCESS',
+            'checkout_recovery_id' => $recovery->id,
+            'attempt_number' => 1,
+            'metadata' => [
+                'type' => 'subscription',
+                'business_id' => $business->id,
+                'subscription_id' => $subscription->id,
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'billing_interval' => $plan->billing_interval,
+                'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code,
+            ],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturn([
+            'success' => true,
+            'status' => 'success',
+            'reference' => $payment->reference,
+            'amount' => 1000000,
+            'currency' => 'NGN',
+            'authorization_code' => 'AUTH_LATE_SUCCESS',
+            'customer_code' => 'CUS_LATE_SUCCESS',
+        ]);
+        $gateway->shouldNotReceive('initialize');
+        $provisioner = Mockery::mock(PaystackSubscriptionProvisioningService::class);
+        $provisioner->shouldReceive('provision')->once()->andReturnUsing(fn (Subscription $item) => $item);
+        $this->app->instance(PaystackSubscriptionProvisioningService::class, $provisioner);
+
+        $result = app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com',
+            $recovery->id,
+        );
+
+        expect($result['status'])->toBe('paid')
+            ->and($result['outcome'])->toBe('succeeded')
+            ->and($payment->fresh()->status)->toBe('paid')
+            ->and($subscription->fresh()->plan_id)->toBe($plan->id)
+            ->and(Payment::where('business_id', $business->id)->count())->toBe(1);
+    }
+
+    public function test_explicit_recovery_cannot_silently_use_changed_plan_terms(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $plan = $this->makePlan();
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'plan_id' => $plan->id, 'plan_slug' => $plan->slug,
+                'amount' => '10000.00', 'currency' => 'NGN',
+                'billing_interval' => 'monthly', 'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => null,
+            ],
+            'status' => 'retryable',
+        ]);
+        Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => null, 'sale_id' => null,
+            'amount' => '10000.00', 'method' => 'paystack', 'status' => 'failed',
+            'reference' => 'MERCHANTOS-CHANGED-TERMS-FAILED',
+            'checkout_recovery_id' => $recovery->id, 'attempt_number' => 1,
+            'last_provider_status' => 'failed', 'last_provider_checked_at' => now(),
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id,
+                'plan_id' => $plan->id, 'plan_slug' => $plan->slug,
+                'billing_interval' => 'monthly', 'currency' => 'NGN',
+                'paystack_plan_code' => $plan->paystack_plan_code],
+        ]);
+        $plan->forceFill(['price' => '11000.00'])->save();
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com',
+            $recovery->id,
+        ))->toThrow(ValidationException::class);
+
+        expect(Payment::where('business_id', $business->id)->count())->toBe(1);
     }
 
 }

@@ -455,9 +455,9 @@ class PaymentWebhookEventProcessingServiceTest extends TestCase
         $originalDefault = DB::getDefaultConnection();
         $connectionName = 'webhook_race_' . bin2hex(random_bytes(4));
         $connectionConfig = config("database.connections.{$originalDefault}");
-        if (($connectionConfig['database'] ?? null) !== 'account_payment_test'
-            || (string) ($connectionConfig['port'] ?? '') !== '5433') {
-            $this->fail('Concurrency test must use the isolated account_payment_test database on port 5433.');
+        if (($connectionConfig['database'] ?? null) !== 'account_concurrency_test'
+            || (string) ($connectionConfig['port'] ?? '') !== '5432') {
+            $this->fail('Concurrency test must use the isolated account_concurrency_test database on port 5432.');
         }
 
         config(["database.connections.{$connectionName}" => $connectionConfig]);
@@ -552,8 +552,8 @@ class PaymentWebhookEventProcessingServiceTest extends TestCase
             $databaseConfig['url'] = null;
             $processInput = json_encode([
                 'database_config' => $databaseConfig,
-                'expected_database' => 'account_payment_test',
-                'expected_port' => 5433,
+                'expected_database' => 'account_concurrency_test',
+                'expected_port' => 5432,
                 'event_id' => $eventId,
                 'ready_file' => $readyFile,
                 'start_file' => $startFile,

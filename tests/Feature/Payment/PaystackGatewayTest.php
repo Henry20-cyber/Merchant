@@ -128,6 +128,10 @@ class PaystackGatewayTest extends TestCase
 
                     'currency' => 'NGN',
 
+                    'gateway_response' => 'Successful',
+
+                    'message' => null,
+
                     'authorization' => [
                         'authorization_code' =>
                         'AUTH_test_123456',
@@ -161,6 +165,12 @@ class PaystackGatewayTest extends TestCase
 
         expect($result['currency'])
             ->toBe('NGN');
+
+        expect($result['gateway_response'])
+            ->toBe('Successful');
+
+        expect($result['message'])
+            ->toBeNull();
 
         expect($result['authorization_code'])
             ->toBe('AUTH_test_123456');

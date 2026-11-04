@@ -5,6 +5,7 @@ namespace Tests\Feature\Payment;
 use App\Domains\Organization\Models\Business;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
+use App\Domains\Payment\Models\SubscriptionCheckoutRecovery;
 use App\Domains\Sales\Models\Sale;
 use App\Models\User;
 use App\Domains\Payment\Services\PaymentConfirmationService;
@@ -14,6 +15,7 @@ use App\Domains\Subscription\Models\SubscriptionPlan;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Validation\ValidationException;
 use Mockery;
 use Tests\TestCase;
@@ -114,6 +116,8 @@ class PaymentConfirmationServiceTest extends TestCase
                 'plan_slug' => $plan->slug,
                 'billing_interval' =>
                 $plan->billing_interval,
+                'currency' => $plan->currency,
+                'paystack_plan_code' => $plan->paystack_plan_code,
             ],
         ]);
     }
@@ -305,6 +309,270 @@ class PaymentConfirmationServiceTest extends TestCase
             ->toBe($subscription->id);
     }
 
+    public function test_successful_payment_upgrades_existing_active_free_subscription(): void
+    {
+        $business = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $paid = $this->createPlan('monthly');
+        $subscription = Subscription::factory()->create([
+            'business_id' => $business->id,
+            'plan_id' => $free->id,
+            'status' => 'active',
+            'provider' => null,
+            'provider_subscription_code' => null,
+            'provisioning_status' => 'not_required',
+        ]);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'sale_id' => null,
+            'amount' => $paid->price,
+            'method' => 'paystack',
+            'status' => 'pending',
+            'reference' => 'MERCHANTOS-FREE-UPGRADE-SUCCESS',
+            'metadata' => [
+                'type' => 'subscription', 'business_id' => $business->id,
+                'subscription_id' => $subscription->id, 'plan_id' => $paid->id,
+                'billing_interval' => 'monthly', 'currency' => 'NGN',
+                'paystack_plan_code' => $paid->paystack_plan_code,
+            ],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturn($this->successfulVerification($payment));
+
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($payment->fresh()->status)->toBe('paid')
+            ->and($subscription->fresh()->status)->toBe('active')
+            ->and($subscription->fresh()->plan_id)->toBe($paid->id);
+    }
+
+    public function test_only_one_successful_attempt_in_a_recovery_group_provisions_subscription(): void
+    {
+        $business = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $plan = $this->createPlan();
+        $subscription = Subscription::create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active']);
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'amount' => '10000.00',
+                'currency' => 'NGN',
+                'billing_interval' => 'monthly',
+                'plan_id' => $plan->id,
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => $subscription->id,
+            ],
+            'status' => 'pending',
+        ]);
+        $first = $this->createPayment($business, $plan, 'RECOVERY-WINNER');
+        $first->forceFill(['subscription_id' => $subscription->id, 'checkout_recovery_id' => $recovery->id, 'attempt_number' => 1])->save();
+        $second = $this->createPayment($business, $plan, 'RECOVERY-LATE-SUCCESS');
+        $second->forceFill(['subscription_id' => $subscription->id, 'checkout_recovery_id' => $recovery->id, 'attempt_number' => 2])->save();
+
+        $this->gateway->shouldReceive('verify')->twice()->andReturnUsing(function (string $reference) use ($first, $second): array {
+            return $this->successfulVerification($reference === $first->reference ? $first : $second);
+        });
+
+        app(PaymentConfirmationService::class)->confirm($first->reference);
+        app(PaymentConfirmationService::class)->confirm($second->reference);
+
+        expect($recovery->fresh()->winning_payment_id)->toBe($first->id)
+            ->and($recovery->fresh()->status)->toBe('manual_review')
+            ->and($first->fresh()->status)->toBe('paid')
+            ->and($second->fresh()->status)->toBe('paid')
+            ->and($second->fresh()->metadata['entitlement_review'])->toBe('Another payment attempt already fulfilled this checkout purchase.')
+            ->and($subscription->fresh()->plan_id)->toBe($plan->id);
+    }
+
+    public function test_bounded_reconciliation_keeps_inconclusive_payment_pending_and_schedules_retry(): void
+    {
+        $business = $this->createBusiness();
+        $plan = $this->createPlan();
+        $payment = $this->createPayment($business, $plan, 'BOUNDED-RECONCILIATION-PENDING');
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'plan_id' => $plan->id,
+                'amount' => '10000.00',
+                'currency' => 'NGN',
+                'billing_interval' => $plan->billing_interval,
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => null,
+            ],
+            'status' => 'pending',
+        ]);
+        $payment->forceFill([
+            'checkout_recovery_id' => $recovery->id,
+            'attempt_number' => 1,
+            'created_at' => now()->subMinutes(10),
+        ])->save();
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturn([
+            'success' => true,
+            'status' => 'pending',
+            'reference' => $payment->reference,
+            'amount' => 1_000_000,
+            'currency' => 'NGN',
+        ]);
+
+        Artisan::call('payments:reconcile-subscription-checkouts', ['--limit' => 50]);
+        Artisan::call('payments:reconcile-subscription-checkouts', ['--limit' => 50]);
+
+        expect($payment->fresh()->status)->toBe('pending')
+            ->and($payment->fresh()->reconciliation_attempts)->toBe(1)
+            ->and($payment->fresh()->next_reconciliation_at)->not->toBeNull()
+            ->and($recovery->fresh()->status)->toBe('pending');
+    }
+
+    public function test_successful_payment_upgrades_existing_active_free_subscription_to_annual_plan(): void
+    {
+        $business = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $annual = $this->createPlan('yearly');
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active', 'provisioning_status' => 'not_required']);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => $subscription->id, 'sale_id' => null,
+            'amount' => $annual->price, 'method' => 'paystack', 'status' => 'pending', 'reference' => 'MERCHANTOS-FREE-UPGRADE-ANNUAL',
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id, 'subscription_id' => $subscription->id,
+                'plan_id' => $annual->id, 'billing_interval' => 'yearly', 'currency' => 'NGN', 'paystack_plan_code' => $annual->paystack_plan_code],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturn($this->successfulVerification($payment));
+
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($subscription->fresh()->status)->toBe('active')
+            ->and($subscription->fresh()->plan_id)->toBe($annual->id)
+            ->and(abs($subscription->fresh()->current_period_end->diffInDays($subscription->fresh()->current_period_start)))->toBeGreaterThan(360);
+    }
+
+    public function test_failed_and_inconclusive_free_upgrade_payments_leave_subscription_unchanged(): void
+    {
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        foreach ([['failed', 'failed'], ['pending', 'pending']] as [$providerStatus, $localStatus]) {
+            $business = $this->createBusiness();
+            $paid = $this->createPlan();
+            $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active', 'provisioning_status' => 'not_required']);
+            $payment = Payment::factory()->create([
+                'business_id' => $business->id, 'subscription_id' => $subscription->id, 'amount' => $paid->price,
+                'method' => 'paystack', 'status' => 'pending', 'reference' => 'MERCHANTOS-FREE-UPGRADE-' . strtoupper($providerStatus),
+                'metadata' => ['type' => 'subscription', 'business_id' => $business->id, 'subscription_id' => $subscription->id,
+                    'plan_id' => $paid->id, 'billing_interval' => 'monthly', 'currency' => 'NGN', 'paystack_plan_code' => $paid->paystack_plan_code],
+            ]);
+            $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andReturn([
+                'success' => true, 'status' => $providerStatus, 'reference' => $payment->reference,
+                'amount' => 1_000_000, 'currency' => 'NGN',
+            ]);
+
+            app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+            expect($payment->fresh()->status)->toBe($localStatus)
+                ->and($subscription->fresh()->status)->toBe('active')
+                ->and($subscription->fresh()->plan_id)->toBe($free->id);
+        }
+    }
+
+    public function test_provider_verification_exception_leaves_free_upgrade_pending(): void
+    {
+        $business = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $paid = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $free->id, 'status' => 'active', 'provisioning_status' => 'not_required']);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => $subscription->id, 'amount' => $paid->price,
+            'method' => 'paystack', 'status' => 'pending', 'reference' => 'MERCHANTOS-FREE-UPGRADE-VERIFY-ERROR',
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id, 'subscription_id' => $subscription->id,
+                'plan_id' => $paid->id, 'billing_interval' => 'monthly', 'currency' => 'NGN', 'paystack_plan_code' => $paid->paystack_plan_code],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->with($payment->reference)->andThrow(new \RuntimeException('Gateway unavailable'));
+
+        expect(fn () => app(PaymentConfirmationService::class)->confirm($payment->reference))->toThrow(\RuntimeException::class);
+        expect($payment->fresh()->status)->toBe('pending')
+            ->and($subscription->fresh()->status)->toBe('active')
+            ->and($subscription->fresh()->plan_id)->toBe($free->id);
+    }
+
+    public function test_payment_for_another_business_cannot_modify_target_subscription(): void
+    {
+        $paymentBusiness = $this->createBusiness();
+        $subscriptionBusiness = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $paid = $this->createPlan();
+        $subscription = Subscription::factory()->create(['business_id' => $subscriptionBusiness->id, 'plan_id' => $free->id, 'status' => 'active', 'provisioning_status' => 'not_required']);
+        $payment = Payment::factory()->create([
+            'business_id' => $paymentBusiness->id, 'subscription_id' => $subscription->id, 'amount' => $paid->price,
+            'method' => 'paystack', 'status' => 'pending', 'reference' => 'MERCHANTOS-CROSS-BUSINESS',
+            'metadata' => ['type' => 'subscription', 'business_id' => $paymentBusiness->id, 'subscription_id' => $subscription->id,
+                'plan_id' => $paid->id, 'billing_interval' => 'monthly', 'currency' => 'NGN', 'paystack_plan_code' => $paid->paystack_plan_code],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment));
+
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($payment->fresh()->status)->toBe('paid')
+            ->and($payment->fresh()->metadata['entitlement_review'])->toBeString()
+            ->and($subscription->fresh()->plan_id)->toBe($free->id)
+            ->and($subscription->fresh()->status)->toBe('active');
+    }
+
+    public function test_active_paid_subscription_is_not_overwritten_by_another_checkout_payment(): void
+    {
+        $business = $this->createBusiness();
+        $currentPlan = $this->createPlan();
+        $requestedPlan = $this->createPlan('yearly');
+        $subscription = Subscription::factory()->create([
+            'business_id' => $business->id, 'plan_id' => $currentPlan->id,
+            'status' => 'active', 'provider_subscription_code' => null,
+        ]);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => $subscription->id,
+            'amount' => $requestedPlan->price, 'method' => 'paystack', 'status' => 'pending',
+            'reference' => 'MERCHANTOS-ACTIVE-PAID-GUARD',
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id,
+                'subscription_id' => $subscription->id, 'plan_id' => $requestedPlan->id,
+                'billing_interval' => 'yearly', 'currency' => 'NGN',
+                'paystack_plan_code' => $requestedPlan->paystack_plan_code],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment));
+
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($payment->fresh()->status)->toBe('paid')
+            ->and($payment->fresh()->metadata['entitlement_review'])->toBeString()
+            ->and($subscription->fresh()->status)->toBe('active')
+            ->and($subscription->fresh()->plan_id)->toBe($currentPlan->id);
+    }
+
+    public function test_payment_plan_terms_mismatch_does_not_change_free_subscription(): void
+    {
+        $business = $this->createBusiness();
+        $free = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00', 'paystack_plan_code' => null]);
+        $selectedPlan = $this->createPlan();
+        $otherPlan = $this->createPlan('yearly');
+        $subscription = Subscription::factory()->create([
+            'business_id' => $business->id, 'plan_id' => $free->id,
+            'status' => 'active', 'provisioning_status' => 'not_required',
+        ]);
+        $payment = Payment::factory()->create([
+            'business_id' => $business->id, 'subscription_id' => $subscription->id,
+            'amount' => $selectedPlan->price, 'method' => 'paystack', 'status' => 'pending',
+            'reference' => 'MERCHANTOS-PLAN-TERMS-MISMATCH',
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id,
+                'subscription_id' => $subscription->id, 'plan_id' => $selectedPlan->id,
+                'billing_interval' => 'monthly', 'currency' => 'NGN',
+                'paystack_plan_code' => $otherPlan->paystack_plan_code],
+        ]);
+        $this->gateway->shouldReceive('verify')->once()->andReturn($this->successfulVerification($payment));
+
+        app(PaymentConfirmationService::class)->confirm($payment->reference);
+
+        expect($payment->fresh()->status)->toBe('paid')
+            ->and($payment->fresh()->metadata['entitlement_review'])->toBeString()
+            ->and($subscription->fresh()->plan_id)->toBe($free->id)
+            ->and($subscription->fresh()->status)->toBe('active');
+    }
+
     /**
      * Monthly subscription receives a one-month period.
      */
@@ -486,9 +754,12 @@ class PaymentConfirmationServiceTest extends TestCase
             'metadata' => [
                 'type' => 'subscription',
                 'business_id' => $business->id,
+                'subscription_id' => $subscription->id,
                 'plan_id' => $newPlan->id,
                 'plan_slug' => $newPlan->slug,
                 'billing_interval' => 'monthly',
+                'currency' => $newPlan->currency,
+                'paystack_plan_code' => $newPlan->paystack_plan_code,
             ],
         ]);
 

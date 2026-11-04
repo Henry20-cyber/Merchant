@@ -32,6 +32,11 @@ class SubscriptionCheckoutRequest extends FormRequest
                 'email',
                 'max:255',
             ],
+
+            'recovery_id' => [
+                'nullable',
+                'uuid',
+            ],
         ];
     }
 }

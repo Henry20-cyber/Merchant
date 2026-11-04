@@ -282,6 +282,24 @@ class PaymentWebhookEventProcessingService
             }
         }
 
+        if ($eventName === 'charge.failed') {
+            if (! $reference) {
+                return;
+            }
+
+            // Verification is authoritative; a webhook payload alone must not
+            // turn an unresolved or already-paid checkout into a failure.
+            $payment = \App\Domains\Payment\Models\Payment::query()
+                ->where('reference', $reference)
+                ->where('method', 'paystack')
+                ->whereNull('sale_id')
+                ->whereJsonContains('metadata->type', 'subscription')
+                ->first();
+            if ($payment) {
+                $this->confirmationService->confirm($reference);
+            }
+        }
+
         if ($eventName === 'invoice.payment_failed') {
             $customerCode = data_get($payload, 'data.customer.customer_code');
             $subscriptionCode = data_get($payload, 'data.subscription.subscription_code')
