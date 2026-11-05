@@ -16,6 +16,7 @@ use App\Domains\Organization\Controllers\BranchController;
 
 use App\Domains\Subscription\Controllers\SubscriptionController;
 use App\Domains\Subscription\Controllers\SubscriptionCheckoutRecoveryController;
+use App\Domains\Subscription\Controllers\SubscriptionPaymentVerificationController;
 use App\Domains\Receipt\Controllers\ReceiptController;
 use App\Domains\Receipt\Controllers\PublicReceiptVerificationController;
 use App\Domains\Customer\Controllers\CustomerController;
@@ -851,6 +852,14 @@ Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
     Route::get('/businesses/current/subscription/checkout-recoveries', [
         SubscriptionCheckoutRecoveryController::class,
         'index',
+    ])->middleware([
+        'business.context',
+        'permission:subscription.manage',
+    ]);
+
+    Route::post('/businesses/current/subscription/payment-verification', [
+        SubscriptionPaymentVerificationController::class,
+        'verify',
     ])->middleware([
         'business.context',
         'permission:subscription.manage',
