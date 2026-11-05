@@ -4,9 +4,6 @@ namespace Tests\Feature\Subscription;
 
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
-use App\Models\User;
-use Spatie\Permission\Models\Permission;
-use Spatie\Permission\Models\Role;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
 use App\Domains\Payment\Models\SubscriptionCheckoutRecovery;
@@ -14,15 +11,19 @@ use App\Domains\Payment\Services\PaystackSubscriptionProvisioningService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
 use App\Domains\Subscription\Services\SubscriptionCheckoutService;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Mockery;
+use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Tests\TestCase;
 
 class SubscriptionCheckoutServiceTest extends TestCase
 {
     use RefreshDatabase;
-
 
     private function makeBillingActor(Business $business): User
     {
@@ -63,7 +64,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             'price' => $price,
             'currency' => 'NGN',
             'billing_interval' => $interval,
-            'paystack_plan_code' => 'PLN_test_account_' . strtolower(bin2hex(random_bytes(5))),
+            'paystack_plan_code' => 'PLN_test_account_'.strtolower(bin2hex(random_bytes(5))),
             'is_active' => true,
         ]);
     }
@@ -85,7 +86,6 @@ class SubscriptionCheckoutServiceTest extends TestCase
         return $mock;
     }
 
-
     public function test_checkout_rejects_actor_from_another_business_before_gateway_call(): void
     {
         $business = $this->makeBusiness();
@@ -102,7 +102,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             $business,
             $plan,
             'merchant@example.com'
-        ))->toThrow(\Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException::class);
+        ))->toThrow(AccessDeniedHttpException::class);
 
         expect(Payment::where('business_id', $business->id)->exists())->toBeFalse();
     }
@@ -325,7 +325,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             SubscriptionCheckoutService::class
         );
 
-        expect(fn() => $service->checkout(
+        expect(fn () => $service->checkout(
             $actor,
             $business,
             $plan,
@@ -354,7 +354,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             SubscriptionCheckoutService::class
         );
 
-        expect(fn() => $service->checkout(
+        expect(fn () => $service->checkout(
             $actor,
             $business,
             $plan,
@@ -428,7 +428,7 @@ class SubscriptionCheckoutServiceTest extends TestCase
             SubscriptionCheckoutService::class
         );
 
-        expect(fn() => $service->checkout(
+        expect(fn () => $service->checkout(
             $actor,
             $business,
             $plan,
@@ -444,86 +444,85 @@ class SubscriptionCheckoutServiceTest extends TestCase
         )->toBe(0);
     }
 
-     public function test_starter_monthly_price_is_sent_to_paystack_in_kobo(): void
-{
-    $business = $this->makeBusiness();
+    public function test_starter_monthly_price_is_sent_to_paystack_in_kobo(): void
+    {
+        $business = $this->makeBusiness();
 
-    $actor = $this->makeBillingActor($business);
+        $actor = $this->makeBillingActor($business);
 
-    $plan = $this->makePlan(
-        slug: 'low-monthly',
-        price: '3000.00',
-        interval: 'monthly',
-    );
+        $plan = $this->makePlan(
+            slug: 'low-monthly',
+            price: '3000.00',
+            interval: 'monthly',
+        );
 
-    $gateway = $this->gatewayMock();
+        $gateway = $this->gatewayMock();
 
-    $gateway
-        ->shouldReceive('initialize')
-        ->once()
-        ->with(Mockery::on(function (array $data) {
-            return $data['amount'] === 300000;
-        }))
-        ->andReturnUsing(fn (array $data) => [
-            'success' => true,
-            'authorization_url' => 'https://checkout.paystack.com/test',
-            'access_code' => 'test',
-            'reference' => $data['reference'],
-            'raw' => [],
-        ]);
+        $gateway
+            ->shouldReceive('initialize')
+            ->once()
+            ->with(Mockery::on(function (array $data) {
+                return $data['amount'] === 300000;
+            }))
+            ->andReturnUsing(fn (array $data) => [
+                'success' => true,
+                'authorization_url' => 'https://checkout.paystack.com/test',
+                'access_code' => 'test',
+                'reference' => $data['reference'],
+                'raw' => [],
+            ]);
 
-    $service = app(
-        SubscriptionCheckoutService::class
-    );
+        $service = app(
+            SubscriptionCheckoutService::class
+        );
 
-    $service->checkout(
-        $actor,
-        $business,
-        $plan,
-        'merchant@example.com'
-    );
-}
+        $service->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com'
+        );
+    }
 
-public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
-{
-    $business = $this->makeBusiness();
+    public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
+    {
+        $business = $this->makeBusiness();
 
-    $actor = $this->makeBillingActor($business);
+        $actor = $this->makeBillingActor($business);
 
-    $plan = $this->makePlan(
-        slug: 'low-yearly',
-        price: '30000.00',
-        interval: 'yearly',
-    );
+        $plan = $this->makePlan(
+            slug: 'low-yearly',
+            price: '30000.00',
+            interval: 'yearly',
+        );
 
-    $gateway = $this->gatewayMock();
+        $gateway = $this->gatewayMock();
 
-    $gateway
-        ->shouldReceive('initialize')
-        ->once()
-        ->with(Mockery::on(function (array $data) {
-            return $data['amount'] === 3000000;
-        }))
-        ->andReturnUsing(fn (array $data) => [
-            'success' => true,
-            'authorization_url' => 'https://checkout.paystack.com/test',
-            'access_code' => 'test',
-            'reference' => $data['reference'],
-            'raw' => [],
-        ]);
+        $gateway
+            ->shouldReceive('initialize')
+            ->once()
+            ->with(Mockery::on(function (array $data) {
+                return $data['amount'] === 3000000;
+            }))
+            ->andReturnUsing(fn (array $data) => [
+                'success' => true,
+                'authorization_url' => 'https://checkout.paystack.com/test',
+                'access_code' => 'test',
+                'reference' => $data['reference'],
+                'raw' => [],
+            ]);
 
-    $service = app(
-        SubscriptionCheckoutService::class
-    );
+        $service = app(
+            SubscriptionCheckoutService::class
+        );
 
-    $service->checkout(
-        $actor,
-        $business,
-        $plan,
-        'merchant@example.com'
-    );
-}
-
+        $service->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com'
+        );
+    }
 
     public function test_checkout_rejects_active_subscription_without_provider_code(): void
     {
@@ -1001,7 +1000,7 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
             $business,
             $plan,
             'merchant@example.com',
-            (string) \Illuminate\Support\Str::uuid(),
+            (string) Str::uuid(),
         ))->toThrow(ValidationException::class);
 
         expect(Payment::where('business_id', $business->id)->count())->toBe(1);
@@ -1071,6 +1070,56 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
 
         expect(Payment::where('business_id', $business->id)->count())->toBe(1)
             ->and($recovery->fresh()->status)->toBe('succeeded');
+    }
+
+    public function test_retryable_recovery_with_a_paid_attempt_cannot_start_another_charge(): void
+    {
+        $business = $this->makeBusiness();
+        $actor = $this->makeBillingActor($business);
+        $freePlan = SubscriptionPlan::factory()->create(['slug' => 'free', 'price' => '0.00']);
+        $plan = $this->makePlan('low-monthly', '3000.00');
+        $subscription = Subscription::factory()->create(['business_id' => $business->id, 'plan_id' => $freePlan->id, 'status' => 'active']);
+        $recovery = SubscriptionCheckoutRecovery::query()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'plan_id' => $plan->id,
+            'purchase_terms' => [
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug,
+                'amount' => $plan->price,
+                'currency' => $plan->currency,
+                'billing_interval' => $plan->billing_interval,
+                'paystack_plan_code' => $plan->paystack_plan_code,
+                'subscription_id' => $subscription->id,
+            ],
+            'status' => 'retryable',
+        ]);
+        Payment::factory()->create([
+            'business_id' => $business->id,
+            'subscription_id' => $subscription->id,
+            'sale_id' => null,
+            'amount' => $plan->price,
+            'method' => 'paystack',
+            'status' => 'paid',
+            'reference' => 'MERCHANTOS-PAID-RETRY-GUARD',
+            'checkout_recovery_id' => $recovery->id,
+            'attempt_number' => 1,
+            'metadata' => ['type' => 'subscription', 'business_id' => $business->id, 'plan_id' => $plan->id],
+        ]);
+        $gateway = $this->gatewayMock();
+        $gateway->shouldNotReceive('initialize');
+
+        expect(fn () => app(SubscriptionCheckoutService::class)->checkout(
+            $actor,
+            $business,
+            $plan,
+            'merchant@example.com',
+            $recovery->id,
+        ))->toThrow(ValidationException::class);
+
+        expect(Payment::where('business_id', $business->id)->count())->toBe(1)
+            ->and($subscription->fresh()->plan_id)->toBe($freePlan->id)
+            ->and($recovery->fresh()->status)->toBe('retryable');
     }
 
     public function test_abandoned_attempt_can_retry_with_same_recovery_and_next_attempt_number(): void
@@ -1167,5 +1216,4 @@ public function test_starter_yearly_price_is_sent_to_paystack_in_kobo(): void
             ->and($oldRecovery->fresh()->status)->toBe('retryable')
             ->and($response['recovery_id'])->toBe($newPayment->checkout_recovery_id);
     }
-
 }

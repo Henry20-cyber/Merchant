@@ -4,16 +4,17 @@ namespace App\Domains\Subscription\Services;
 
 use App\Domains\Organization\Models\Business;
 use App\Domains\Organization\Models\BusinessUser;
-use App\Models\User;
-use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use App\Domains\Payment\Contracts\PaymentGateway;
 use App\Domains\Payment\Models\Payment;
 use App\Domains\Payment\Models\SubscriptionCheckoutRecovery;
+use App\Domains\Payment\Services\PaymentConfirmationService;
 use App\Domains\Subscription\Models\Subscription;
 use App\Domains\Subscription\Models\SubscriptionPlan;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class SubscriptionCheckoutService
 {
@@ -150,6 +151,7 @@ class SubscriptionCheckoutService
                         'attempt_number' => 1,
                     ])->save();
                 }
+
                 return [$pendingPayment->fresh(), $subscription, true];
             }
 
@@ -181,6 +183,20 @@ class SubscriptionCheckoutService
             }
 
             if ($recovery && $this->recoveryTermsMatchPlan($recovery, $plan, $subscription)) {
+                if ($recovery->winning_payment_id !== null
+                    || $recovery->payments()->where('status', 'paid')->exists()) {
+                    throw ValidationException::withMessages([
+                        'recovery_id' => 'This checkout already has a successful payment and cannot be retried. Contact support for entitlement recovery.',
+                    ]);
+                }
+                $attempts = $recovery->payments()->get();
+                if ($attempts->isEmpty() || $attempts->contains(fn (Payment $attempt): bool => $attempt->status !== 'failed'
+                    || ! in_array($attempt->last_provider_status, ['failed', 'abandoned'], true)
+                )) {
+                    throw ValidationException::withMessages([
+                        'recovery_id' => 'Every prior attempt must have a definitive provider failure before this checkout can be retried.',
+                    ]);
+                }
                 $attemptNumber = ((int) $recovery->payments()->max('attempt_number')) + 1;
                 $recovery->forceFill(['status' => 'pending'])->save();
             } else {
@@ -221,13 +237,14 @@ class SubscriptionCheckoutService
         if ($recovering) {
             // The confirmation service owns verification and state transitions;
             // consume its result so this reference is verified only once.
-            $reconciled = app(\App\Domains\Payment\Services\PaymentConfirmationService::class)->confirm($payment->reference);
+            $reconciled = app(PaymentConfirmationService::class)->confirm($payment->reference);
             if ($reconciled->status === 'failed') {
                 $recovery = $reconciled->checkoutRecovery;
                 $retryAvailable = $recovery?->status === 'retryable';
                 $outcome = $retryAvailable
                     ? ($recovery->retry_reason ?? 'failed')
                     : ($recovery?->status === 'manual_review' ? 'manual_review' : 'reconciling');
+
                 return [
                     'payment_id' => $reconciled->id,
                     'reference' => $reconciled->reference,
@@ -245,6 +262,7 @@ class SubscriptionCheckoutService
             }
 
             $checkout = $payment->metadata['checkout'] ?? [];
+
             return [
                 'payment_id' => $payment->id,
                 'reference' => $payment->reference,
@@ -269,7 +287,7 @@ class SubscriptionCheckoutService
                 'amount' => $this->toMinorUnits((string) $plan->price),
                 'reference' => $payment->reference,
                 'callback_url' => config('app.frontend_url')
-                    . '/subscription/payment/callback',
+                    .'/subscription/payment/callback',
                 'metadata' => [
                     'payment_id' => $payment->id,
                     'business_id' => $business->id,
@@ -325,7 +343,6 @@ class SubscriptionCheckoutService
             'resume_possible' => true,
         ];
     }
-
 
     /**
      * Ensure the actor is an active member with billing permission
@@ -385,7 +402,7 @@ class SubscriptionCheckoutService
 
     private function generateReference(): string
     {
-        return 'MERCHANTOS-' . strtoupper(
+        return 'MERCHANTOS-'.strtoupper(
             Str::random(20)
         );
     }
@@ -395,8 +412,7 @@ class SubscriptionCheckoutService
         ?Subscription $subscription,
         SubscriptionPlan $plan,
         ?Payment $existingAttempt = null,
-    ): SubscriptionCheckoutRecovery
-    {
+    ): SubscriptionCheckoutRecovery {
         $metadata = $existingAttempt?->metadata ?? [];
         $terms = $existingAttempt ? [
             // Preserve only facts captured on the original local payment.
@@ -462,19 +478,23 @@ class SubscriptionCheckoutService
         }
 
         $recovery = $query->with('payments')->latest('created_at')->first();
-        if (! $recovery) return null;
+        if (! $recovery) {
+            return null;
+        }
 
         $unverifiedFailures = $recovery->payments
             ->where('status', 'failed')
             ->filter(fn (Payment $payment): bool => ! in_array($payment->last_provider_status, ['failed', 'abandoned'], true));
-        if ($unverifiedFailures->isEmpty()) return null;
+        if ($unverifiedFailures->isEmpty()) {
+            return null;
+        }
 
         // A retry can create another charge, so first verify every legacy
         // failed attempt that has no retained definitive provider status.
         // Authorization is repeated inside the locked checkout transaction.
         $lockedBusiness = Business::query()->whereKey($business->id)->firstOrFail();
         $this->authorizeBillingManager($actor, $lockedBusiness);
-        $confirmation = app(\App\Domains\Payment\Services\PaymentConfirmationService::class);
+        $confirmation = app(PaymentConfirmationService::class);
         foreach ($unverifiedFailures as $payment) {
             $checked = $confirmation->confirm((string) $payment->reference);
             if ($checked->status === 'paid') {

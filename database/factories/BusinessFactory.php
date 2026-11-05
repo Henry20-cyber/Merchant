@@ -19,12 +19,11 @@ class BusinessFactory extends Factory
         return [
             'business_type_id' => BusinessType::factory(),
 
-            'merchant_id' => 'MCH-' . strtoupper(Str::random(6)),
+            'merchant_id' => 'MCH-'.strtoupper(Str::random(6)),
 
             'name' => fake()->company(),
 
-            'slug' => fn (array $attributes) =>
-                Str::slug($attributes['name']),
+            'slug' => fn (array $attributes) => Str::slug($attributes['name']).'-'.Str::lower((string) Str::uuid()),
 
             'phone' => fake()->phoneNumber(),
 
